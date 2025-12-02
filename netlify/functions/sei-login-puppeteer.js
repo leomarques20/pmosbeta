@@ -64,7 +64,7 @@ exports.handler = async (event) => {
         // 3. Faz login e aguarda navegação
         await Promise.all([
             page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
-            page.click('#sbmLogin')
+            page.click('#Acessar')
         ]);
 
         console.log('Checking login result...');
