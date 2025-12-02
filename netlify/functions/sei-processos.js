@@ -32,6 +32,8 @@ function stringifyCookies(cookies) {
         .join('; ');
 }
 
+const iconv = require('iconv-lite');
+
 function makeRequest(url, options = {}, redirectChain = []) {
     return new Promise((resolve, reject) => {
         const protocol = url.startsWith('https') ? https : http;
@@ -67,13 +69,21 @@ function makeRequest(url, options = {}, redirectChain = []) {
                 return;
             }
 
-            let data = '';
+            const chunks = [];
 
             res.on('data', (chunk) => {
-                data += chunk;
+                chunks.push(chunk);
             });
 
             res.on('end', () => {
+                const buffer = Buffer.concat(chunks);
+                // Tenta detectar encoding ou usa latin1 (win1252 é superset seguro de iso-8859-1)
+                const contentType = res.headers['content-type'] || '';
+                let encoding = 'win1252'; // Default para SEI
+                if (contentType.includes('utf-8')) encoding = 'utf8';
+
+                const data = iconv.decode(buffer, encoding);
+
                 resolve({
                     data,
                     headers: res.headers,
@@ -92,6 +102,30 @@ function makeRequest(url, options = {}, redirectChain = []) {
 
         req.end();
     });
+}
+
+// Helper para URL-encode em ISO-8859-1
+function urlEncodeISO(str) {
+    if (!str) return '';
+    const buffer = iconv.encode(str, 'win1252');
+    let res = '';
+    for (let i = 0; i < buffer.length; i++) {
+        const byte = buffer[i];
+        // Caracteres seguros não precisam de escape
+        if (
+            (byte >= 0x30 && byte <= 0x39) || // 0-9
+            (byte >= 0x41 && byte <= 0x5a) || // A-Z
+            (byte >= 0x61 && byte <= 0x7a) || // a-z
+            byte === 0x2d || byte === 0x5f || byte === 0x2e || byte === 0x7e // - _ . ~
+        ) {
+            res += String.fromCharCode(byte);
+        } else if (byte === 0x20) {
+            res += '+';
+        } else {
+            res += '%' + byte.toString(16).toUpperCase().padStart(2, '0');
+        }
+    }
+    return res;
 }
 
 exports.handler = async function (event, context) {
@@ -146,27 +180,33 @@ exports.handler = async function (event, context) {
         }
         const loginUrlToUse = formAction || SEI_LOGIN_URL;
 
-        // Monta dados do formulário preservando campos ocultos originais
-        const formData = new URLSearchParams();
+        // Monta dados do formulário manualmente com encoding correto
+        const formParams = [];
 
         // Adiciona campos ocultos raspados
         Object.entries(hiddenFields).forEach(([key, value]) => {
-            formData.append(key, value);
+            formParams.push(`${urlEncodeISO(key)}=${urlEncodeISO(value)}`);
         });
 
         // Sobrescreve/Adiciona credenciais
-        formData.set('txtUsuario', usuario);
-        formData.set('pwdSenha', senha);
-        formData.set('selOrgao', orgao || '0');
+        // Remove duplicatas se já existirem nos hidden fields
+        const keysToOverride = ['txtUsuario', 'pwdSenha', 'selOrgao', 'sbmLogin', 'txtCaptcha'];
+        const filteredParams = formParams.filter(p => !keysToOverride.some(k => p.startsWith(k + '=')));
 
-        // Garante que sbmLogin exista (às vezes é input submit, não hidden)
-        if (!formData.has('sbmLogin')) {
-            formData.set('sbmLogin', 'Acessar');
+        filteredParams.push(`txtUsuario=${urlEncodeISO(usuario)}`);
+        filteredParams.push(`pwdSenha=${urlEncodeISO(senha)}`);
+        filteredParams.push(`selOrgao=${urlEncodeISO(orgao || '0')}`);
+
+        // Garante que sbmLogin exista
+        if (!hiddenFields['sbmLogin']) {
+            filteredParams.push(`sbmLogin=${urlEncodeISO('Acessar')}`);
         }
 
         if (captcha) {
-            formData.set('txtCaptcha', captcha);
+            filteredParams.push(`txtCaptcha=${urlEncodeISO(captcha)}`);
         }
+
+        const bodyString = filteredParams.join('&');
 
         // 2. Faz o POST de login
         const loginResponse = await makeRequest(loginUrlToUse, {
@@ -179,7 +219,7 @@ exports.handler = async function (event, context) {
                 'Referer': SEI_LOGIN_URL,
                 'Upgrade-Insecure-Requests': '1'
             },
-            body: formData.toString()
+            body: bodyString
         });
 
         // Extrai cookies do login
