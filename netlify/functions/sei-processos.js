@@ -277,9 +277,7 @@ exports.handler = async function (event, context) {
                     finalUrl: finalResponse.finalUrl,
                     redirectChain: finalResponse.redirectChain,
                     hiddenFieldsFound: hiddenFields,
-                    loginUrlUsed: loginUrlToUse,
-                    orgaoOptionsFound: orgaoOptions,
-                    orgaoUsed: orgaoToUse
+                    loginUrlUsed: loginUrlToUse
                 }
             })
         };
