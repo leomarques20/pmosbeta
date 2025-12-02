@@ -1,7 +1,7 @@
 const https = require('https');
 const http = require('http');
 const cheerio = require('cheerio');
-const { URLSearchParams } = require('url');
+const { URLSearchParams, URL } = require('url');
 
 const SEI_BASE_URL = 'https://www.sei.mg.gov.br/sei';
 const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
@@ -11,6 +11,24 @@ function makeRequest(url, options = {}) {
         const protocol = url.startsWith('https') ? https : http;
 
         const req = protocol.request(url, options, (res) => {
+            // Seguir redirecionamento
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                const redirectUrl = new URL(res.headers.location, url).toString();
+                // Preserva cookies no redirecionamento
+                const newOptions = { ...options, method: 'GET' }; // Redirecionamentos geralmente viram GET
+                delete newOptions.body; // Remove corpo no redirecionamento
+
+                // Atualiza cookies se houver
+                if (res.headers['set-cookie']) {
+                    const currentCookies = newOptions.headers['Cookie'] || '';
+                    const newCookies = res.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
+                    newOptions.headers['Cookie'] = currentCookies ? `${currentCookies}; ${newCookies}` : newCookies;
+                }
+
+                makeRequest(redirectUrl, newOptions).then(resolve).catch(reject);
+                return;
+            }
+
             let data = '';
 
             res.on('data', (chunk) => {
@@ -147,7 +165,9 @@ exports.handler = async function (event, context) {
                     tablesFound: $('table.infraTable').length,
                     rowsFound: $('table.infraTable tr').length,
                     linksFound: $('a.infraLinkProcesso').length,
-                    htmlSnippet: processosResponse.data.substring(0, 500) // Primeiros 500 caracteres
+                    htmlSnippet: processosResponse.data ? processosResponse.data.substring(0, 500) : "EMPTY RESPONSE",
+                    statusCode: processosResponse.statusCode,
+                    responseHeaders: processosResponse.headers
                 }
             })
         };
