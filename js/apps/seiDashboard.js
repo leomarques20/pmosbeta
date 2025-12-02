@@ -274,34 +274,38 @@ export function openSeiDashboard() {
             loadCaptcha();
         } finally {
             els.loading.style.display = 'none';
-            // Helper to render process card
-            function renderProcessCard(proc, container, isMonitored = false, appState = null) {
-                const card = document.createElement('div');
-                card.className = 'sei-process-card';
+            els.syncBtn.disabled = false;
+        }
+    };
 
-                // Priority Styling
-                let priorityColor = 'transparent';
-                let priorityBorder = 'var(--separator-color)';
-                if (proc.priority === 'high') { priorityBorder = '#dc3545'; priorityColor = 'rgba(220, 53, 69, 0.1)'; }
-                else if (proc.priority === 'medium') { priorityBorder = '#ffc107'; priorityColor = 'rgba(255, 193, 7, 0.1)'; }
+    // Helper to render process card
+    function renderProcessCard(proc, container, isMonitored = false, appState = null) {
+        const card = document.createElement('div');
+        card.className = 'sei-process-card';
 
-                card.style.cssText = `background: var(--window-bg); border: 1px solid ${priorityBorder}; border-left: 4px solid ${priorityBorder}; border-radius: 6px; padding: 12px; margin-bottom: 10px; position: relative;`;
+        // Priority Styling
+        let priorityColor = 'transparent';
+        let priorityBorder = 'var(--separator-color)';
+        if (proc.priority === 'high') { priorityBorder = '#dc3545'; priorityColor = 'rgba(220, 53, 69, 0.1)'; }
+        else if (proc.priority === 'medium') { priorityBorder = '#ffc107'; priorityColor = 'rgba(255, 193, 7, 0.1)'; }
 
-                const monitorBtnIcon = isMonitored ? 'fa-trash' : 'fa-eye';
-                const monitorBtnText = isMonitored ? 'Remover' : 'Monitorar';
+        card.style.cssText = `background: var(--window-bg); border: 1px solid ${priorityBorder}; border-left: 4px solid ${priorityBorder}; border-radius: 6px; padding: 12px; margin-bottom: 10px; position: relative;`;
 
-                // Timeline Badge
-                let timelineBadge = '';
-                if (proc.daysElapsed !== null) {
-                    let badgeColor = '#28a745'; // Green (recent)
-                    if (proc.daysElapsed > 30) badgeColor = '#ffc107'; // Yellow (warning)
-                    if (proc.daysElapsed > 60) badgeColor = '#dc3545'; // Red (old)
-                    timelineBadge = `<span style="font-size: 0.75em; background: ${badgeColor}; color: #fff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;" title="Dias desde a última movimentação"><i class="far fa-clock"></i> ${proc.daysElapsed}d</span>`;
-                }
+        const monitorBtnIcon = isMonitored ? 'fa-trash' : 'fa-eye';
+        const monitorBtnText = isMonitored ? 'Remover' : 'Monitorar';
 
-                // Notes Section
-                const note = appState ? appState.getNote(proc.protocolo) : '';
-                const noteSection = `
+        // Timeline Badge
+        let timelineBadge = '';
+        if (proc.daysElapsed !== null) {
+            let badgeColor = '#28a745'; // Green (recent)
+            if (proc.daysElapsed > 30) badgeColor = '#ffc107'; // Yellow (warning)
+            if (proc.daysElapsed > 60) badgeColor = '#dc3545'; // Red (old)
+            timelineBadge = `<span style="font-size: 0.75em; background: ${badgeColor}; color: #fff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;" title="Dias desde a última movimentação"><i class="far fa-clock"></i> ${proc.daysElapsed}d</span>`;
+        }
+
+        // Notes Section
+        const note = appState ? appState.getNote(proc.protocolo) : '';
+        const noteSection = `
             <div style="margin-top: 10px; padding: 8px; background: var(--input-bg); border-radius: 4px; display: ${note ? 'block' : 'none'};" id="noteDisplay_${proc.protocolo.replace(/\D/g, '')}">
                 <i class="fas fa-sticky-note" style="color: var(--accent-color); margin-right: 5px;"></i> <span style="font-size: 0.9em; font-style: italic;">${note}</span>
             </div>
@@ -311,7 +315,7 @@ export function openSeiDashboard() {
             </div>
         `;
 
-                card.innerHTML = `
+        card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div style="flex-grow: 1;">
                     <div style="display: flex; align-items: center;">
@@ -350,250 +354,250 @@ export function openSeiDashboard() {
                 </button>
             </div>
         `;
-                container.appendChild(card);
+        container.appendChild(card);
 
-                // Event Listeners
-                const btnImport = card.querySelector(`#btnImport_${proc.protocolo.replace(/\D/g, '')}`);
-                if (btnImport) {
-                    btnImport.onclick = () => {
-                        openKanbanBoard({
-                            importData: {
-                                title: `Processo SEI ${proc.protocolo}`,
-                                description: `Protocolo: ${proc.protocolo}\nUnidade: ${proc.unidade}\nLink: ${proc.link_sei}\n\n${proc.descricao || ''}\n\nInteressados: ${proc.interessados || 'N/A'}`
-                            }
-                        });
-                    };
-                }
+        // Event Listeners
+        const btnImport = card.querySelector(`#btnImport_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnImport) {
+            btnImport.onclick = () => {
+                openKanbanBoard({
+                    importData: {
+                        title: `Processo SEI ${proc.protocolo}`,
+                        description: `Protocolo: ${proc.protocolo}\nUnidade: ${proc.unidade}\nLink: ${proc.link_sei}\n\n${proc.descricao || ''}\n\nInteressados: ${proc.interessados || 'N/A'}`
+                    }
+                });
+            };
+        }
 
-                const btnMonitor = card.querySelector(`#btnMonitor_${proc.protocolo.replace(/\D/g, '')}`);
-                if (btnMonitor) {
-                    btnMonitor.onclick = () => {
-                        const monitored = JSON.parse(localStorage.getItem('pmos_sei_monitored') || '[]');
-                        if (isMonitored) {
-                            const newMonitored = monitored.filter(p => p.protocolo !== proc.protocolo);
-                            localStorage.setItem('pmos_sei_monitored', JSON.stringify(newMonitored));
-                            showNotification(`Processo ${proc.protocolo} removido dos monitorados.`, 3000);
-                            card.remove(); // Remove from view immediately
-                        } else {
-                            if (!monitored.some(p => p.protocolo === proc.protocolo)) {
-                                monitored.push(proc);
-                                localStorage.setItem('pmos_sei_monitored', JSON.stringify(monitored));
-                                showNotification(`Processo ${proc.protocolo} adicionado aos monitorados!`, 3000);
-                            } else {
-                                showNotification(`Processo ${proc.protocolo} já está sendo monitorado.`, 3000);
-                            }
-                        }
-                    };
-                }
-
-                // Note Logic
-                const btnNote = card.querySelector(`#btnNote_${proc.protocolo.replace(/\D/g, '')}`);
-                const noteDisplay = card.querySelector(`#noteDisplay_${proc.protocolo.replace(/\D/g, '')}`);
-                const noteEdit = card.querySelector(`#noteEdit_${proc.protocolo.replace(/\D/g, '')}`);
-                const noteSaveBtn = noteEdit.querySelector('button');
-                const noteTextarea = noteEdit.querySelector('textarea');
-
-                if (btnNote) {
-                    btnNote.onclick = () => {
-                        if (noteEdit.style.display === 'none') {
-                            noteEdit.style.display = 'block';
-                            noteDisplay.style.display = 'none';
-                            noteTextarea.focus();
-                        } else {
-                            noteEdit.style.display = 'none';
-                            if (noteTextarea.value.trim()) noteDisplay.style.display = 'block';
-                        }
-                    };
-                }
-
-                if (noteSaveBtn && appState) {
-                    noteSaveBtn.onclick = () => {
-                        const newNote = noteTextarea.value.trim();
-                        appState.saveNote(proc.protocolo, newNote);
-                        noteEdit.style.display = 'none';
-                        if (newNote) {
-                            noteDisplay.style.display = 'block';
-                            noteDisplay.querySelector('span').textContent = newNote;
-                        } else {
-                            noteDisplay.style.display = 'none';
-                        }
-                    };
-                }
-            }
-
-            // Add Monitorados Button Action
-            const showMonitoredBtn = document.createElement('button');
-            showMonitoredBtn.className = 'app-button secondary';
-            showMonitoredBtn.innerHTML = '<i class="fas fa-list"></i> Monitorados';
-            showMonitoredBtn.style.marginLeft = '10px';
-            showMonitoredBtn.onclick = () => {
-                els.list.innerHTML = '';
-                els.empty.style.display = 'none';
+        const btnMonitor = card.querySelector(`#btnMonitor_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnMonitor) {
+            btnMonitor.onclick = () => {
                 const monitored = JSON.parse(localStorage.getItem('pmos_sei_monitored') || '[]');
-                if (monitored.length > 0) {
-                    monitored.forEach(proc => renderProcessCard(proc, els.list, true));
-                    els.list.style.display = 'block';
+                if (isMonitored) {
+                    const newMonitored = monitored.filter(p => p.protocolo !== proc.protocolo);
+                    localStorage.setItem('pmos_sei_monitored', JSON.stringify(newMonitored));
+                    showNotification(`Processo ${proc.protocolo} removido dos monitorados.`, 3000);
+                    card.remove(); // Remove from view immediately
                 } else {
-                    els.empty.style.display = 'block';
-                    els.empty.innerHTML = '<p>Nenhum processo monitorado.</p>';
-                }
-            };
-
-            // Insert button in toolbar (hacky way since we don't have direct ref to toolbar container here easily, 
-            // but we can append to the header or replace the sync button container)
-            // Actually, let's just append it to the form container for now or find a better place.
-            // The toolbar is created in `content` string. Let's find a place to inject it.
-            // We can append it to `els.syncBtn.parentNode` if it exists, or just after `els.syncBtn`.
-            els.syncBtn.parentNode.insertBefore(showMonitoredBtn, els.syncBtn.nextSibling);
-
-            const appState = {
-                winId,
-                appDataType: 'sei-dashboard',
-                allProcesses: [],
-                filteredProcesses: [],
-                filters: {
-                    search: '',
-                    priority: 'all', // all, high, medium, low
-                    unidade: 'all'
-                },
-                notes: JSON.parse(localStorage.getItem('pmos_sei_notes') || '{}'),
-
-                getData: function () { return {}; },
-                loadData: function () { },
-
-                init: function () {
-                    setupAppToolbarActions(this);
-
-                    // Setup Search and Filter Listeners
-                    const searchInput = winData.element.querySelector(`#searchInput_${uniqueSuffix}`);
-                    const priorityFilter = winData.element.querySelector(`#priorityFilter_${uniqueSuffix}`);
-
-                    if (searchInput) {
-                        searchInput.addEventListener('input', (e) => {
-                            this.filters.search = e.target.value.toLowerCase();
-                            this.applyFilters();
-                        });
-                    }
-
-                    if (priorityFilter) {
-                        priorityFilter.addEventListener('change', (e) => {
-                            this.filters.priority = e.target.value;
-                            this.applyFilters();
-                        });
-                    }
-
-                    // Initial Load
-                    this.fetchProcessos();
-                },
-
-                fetchProcessos: async function () {
-                    const user = els.user.value.trim();
-                    const pass = els.pass.value.trim();
-                    const orgao = els.orgao.value.trim();
-                    const captcha = els.captchaInput.value.trim();
-
-                    if (!user || !pass || !orgao) {
-                        showNotification("Preencha usuário, senha e órgão.", 3000);
-                        return;
-                    }
-
-                    localStorage.setItem('pmos_sei_user', user);
-
-                    els.loading.style.display = 'flex';
-                    els.list.style.display = 'none';
-                    els.empty.style.display = 'none';
-                    els.syncBtn.disabled = true;
-
-                    try {
-                        const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, currentHiddenFields, currentLoginUrl);
-
-                        if (data.error) {
-                            if (data.captcha) {
-                                loadCaptcha(data.captcha);
-                                return;
-                            }
-                            throw new Error(data.error);
-                        }
-
-                        // Enrich data with local notes and calculated priority
-                        this.allProcesses = (data.processos || []).map(p => ({
-                            ...p,
-                            priority: this.calculatePriority(p),
-                            daysElapsed: this.calculateDaysElapsed(p.data)
-                        }));
-
-                        this.applyFilters();
-
-                    } catch (e) {
-                        showNotification(`Erro: ${e.message} `, 5000);
-                        els.empty.style.display = 'block';
-                        loadCaptcha(); // Retry captcha on error
-                    } finally {
-                        els.loading.style.display = 'none';
-                        els.syncBtn.disabled = false;
-                    }
-                },
-
-                calculatePriority: function (proc) {
-                    const text = (proc.descricao + ' ' + proc.tipo + ' ' + proc.interessados).toLowerCase();
-                    if (text.includes('urgente') || text.includes('liminar') || text.includes('mandado') || text.includes('prazo')) return 'high';
-                    if (text.includes('memorando') || text.includes('ofício')) return 'medium';
-                    return 'low';
-                },
-
-                calculateDaysElapsed: function (dateString) {
-                    if (!dateString) return null;
-                    // Expects DD/MM/YYYY
-                    const parts = dateString.split('/');
-                    if (parts.length !== 3) return null;
-                    const date = new Date(parts[2], parts[1] - 1, parts[0]);
-                    const now = new Date();
-                    const diffTime = Math.abs(now - date);
-                    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                },
-
-                applyFilters: function () {
-                    this.filteredProcesses = this.allProcesses.filter(proc => {
-                        const matchesSearch = (proc.protocolo + proc.descricao + proc.tipo + proc.interessados).toLowerCase().includes(this.filters.search);
-                        const matchesPriority = this.filters.priority === 'all' || proc.priority === this.filters.priority;
-                        return matchesSearch && matchesPriority;
-                    });
-                    this.renderList();
-                },
-
-                renderList: function () {
-                    els.list.innerHTML = '';
-                    if (this.filteredProcesses.length > 0) {
-                        this.filteredProcesses.forEach(proc => {
-                            renderProcessCard(proc, els.list, false, this);
-                        });
-                        els.list.style.display = 'block';
-                        els.empty.style.display = 'none';
+                    if (!monitored.some(p => p.protocolo === proc.protocolo)) {
+                        monitored.push(proc);
+                        localStorage.setItem('pmos_sei_monitored', JSON.stringify(monitored));
+                        showNotification(`Processo ${proc.protocolo} adicionado aos monitorados!`, 3000);
                     } else {
-                        els.list.style.display = 'none';
-                        els.empty.style.display = 'block';
-                        els.empty.innerHTML = '<p>Nenhum processo encontrado com os filtros atuais.</p>';
+                        showNotification(`Processo ${proc.protocolo} já está sendo monitorado.`, 3000);
                     }
-                },
-
-                saveNote: function (protocolo, note) {
-                    this.notes[protocolo] = note;
-                    localStorage.setItem('pmos_sei_notes', JSON.stringify(this.notes));
-                    showNotification('Nota salva!', 2000);
-                },
-
-                getNote: function (protocolo) {
-                    return this.notes[protocolo] || '';
                 }
             };
+        }
 
-            initializeFileState(appState, "Dashboard SEI", "dashboard.sei", "sei-dashboard");
-            winData.currentAppInstance = appState;
-            appState.init();
+        // Note Logic
+        const btnNote = card.querySelector(`#btnNote_${proc.protocolo.replace(/\D/g, '')}`);
+        const noteDisplay = card.querySelector(`#noteDisplay_${proc.protocolo.replace(/\D/g, '')}`);
+        const noteEdit = card.querySelector(`#noteEdit_${proc.protocolo.replace(/\D/g, '')}`);
+        const noteSaveBtn = noteEdit.querySelector('button');
+        const noteTextarea = noteEdit.querySelector('textarea');
 
-            // Bind global actions
-            els.syncBtn.onclick = () => appState.fetchProcessos();
+        if (btnNote) {
+            btnNote.onclick = () => {
+                if (noteEdit.style.display === 'none') {
+                    noteEdit.style.display = 'block';
+                    noteDisplay.style.display = 'none';
+                    noteTextarea.focus();
+                } else {
+                    noteEdit.style.display = 'none';
+                    if (noteTextarea.value.trim()) noteDisplay.style.display = 'block';
+                }
+            };
+        }
 
-            return winId;
+        if (noteSaveBtn && appState) {
+            noteSaveBtn.onclick = () => {
+                const newNote = noteTextarea.value.trim();
+                appState.saveNote(proc.protocolo, newNote);
+                noteEdit.style.display = 'none';
+                if (newNote) {
+                    noteDisplay.style.display = 'block';
+                    noteDisplay.querySelector('span').textContent = newNote;
+                } else {
+                    noteDisplay.style.display = 'none';
+                }
+            };
         }
     }
+
+    // Add Monitorados Button Action
+    const showMonitoredBtn = document.createElement('button');
+    showMonitoredBtn.className = 'app-button secondary';
+    showMonitoredBtn.innerHTML = '<i class="fas fa-list"></i> Monitorados';
+    showMonitoredBtn.style.marginLeft = '10px';
+    showMonitoredBtn.onclick = () => {
+        els.list.innerHTML = '';
+        els.empty.style.display = 'none';
+        const monitored = JSON.parse(localStorage.getItem('pmos_sei_monitored') || '[]');
+        if (monitored.length > 0) {
+            monitored.forEach(proc => renderProcessCard(proc, els.list, true));
+            els.list.style.display = 'block';
+        } else {
+            els.empty.style.display = 'block';
+            els.empty.innerHTML = '<p>Nenhum processo monitorado.</p>';
+        }
+    };
+
+    // Insert button in toolbar (hacky way since we don't have direct ref to toolbar container here easily, 
+    // but we can append to the header or replace the sync button container)
+    // Actually, let's just append it to the form container for now or find a better place.
+    // The toolbar is created in `content` string. Let's find a place to inject it.
+    // We can append it to `els.syncBtn.parentNode` if it exists, or just after `els.syncBtn`.
+    els.syncBtn.parentNode.insertBefore(showMonitoredBtn, els.syncBtn.nextSibling);
+
+    const appState = {
+        winId,
+        appDataType: 'sei-dashboard',
+        allProcesses: [],
+        filteredProcesses: [],
+        filters: {
+            search: '',
+            priority: 'all', // all, high, medium, low
+            unidade: 'all'
+        },
+        notes: JSON.parse(localStorage.getItem('pmos_sei_notes') || '{}'),
+
+        getData: function () { return {}; },
+        loadData: function () { },
+
+        init: function () {
+            setupAppToolbarActions(this);
+
+            // Setup Search and Filter Listeners
+            const searchInput = winData.element.querySelector(`#searchInput_${uniqueSuffix}`);
+            const priorityFilter = winData.element.querySelector(`#priorityFilter_${uniqueSuffix}`);
+
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    this.filters.search = e.target.value.toLowerCase();
+                    this.applyFilters();
+                });
+            }
+
+            if (priorityFilter) {
+                priorityFilter.addEventListener('change', (e) => {
+                    this.filters.priority = e.target.value;
+                    this.applyFilters();
+                });
+            }
+
+            // Initial Load
+            this.fetchProcessos();
+        },
+
+        fetchProcessos: async function () {
+            const user = els.user.value.trim();
+            const pass = els.pass.value.trim();
+            const orgao = els.orgao.value.trim();
+            const captcha = els.captchaInput.value.trim();
+
+            if (!user || !pass || !orgao) {
+                showNotification("Preencha usuário, senha e órgão.", 3000);
+                return;
+            }
+
+            localStorage.setItem('pmos_sei_user', user);
+
+            els.loading.style.display = 'flex';
+            els.list.style.display = 'none';
+            els.empty.style.display = 'none';
+            els.syncBtn.disabled = true;
+
+            try {
+                const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, currentHiddenFields, currentLoginUrl);
+
+                if (data.error) {
+                    if (data.captcha) {
+                        loadCaptcha(data.captcha);
+                        return;
+                    }
+                    throw new Error(data.error);
+                }
+
+                // Enrich data with local notes and calculated priority
+                this.allProcesses = (data.processos || []).map(p => ({
+                    ...p,
+                    priority: this.calculatePriority(p),
+                    daysElapsed: this.calculateDaysElapsed(p.data)
+                }));
+
+                this.applyFilters();
+
+            } catch (e) {
+                showNotification(`Erro: ${e.message} `, 5000);
+                els.empty.style.display = 'block';
+                loadCaptcha(); // Retry captcha on error
+            } finally {
+                els.loading.style.display = 'none';
+                els.syncBtn.disabled = false;
+            }
+        },
+
+        calculatePriority: function (proc) {
+            const text = (proc.descricao + ' ' + proc.tipo + ' ' + proc.interessados).toLowerCase();
+            if (text.includes('urgente') || text.includes('liminar') || text.includes('mandado') || text.includes('prazo')) return 'high';
+            if (text.includes('memorando') || text.includes('ofício')) return 'medium';
+            return 'low';
+        },
+
+        calculateDaysElapsed: function (dateString) {
+            if (!dateString) return null;
+            // Expects DD/MM/YYYY
+            const parts = dateString.split('/');
+            if (parts.length !== 3) return null;
+            const date = new Date(parts[2], parts[1] - 1, parts[0]);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        },
+
+        applyFilters: function () {
+            this.filteredProcesses = this.allProcesses.filter(proc => {
+                const matchesSearch = (proc.protocolo + proc.descricao + proc.tipo + proc.interessados).toLowerCase().includes(this.filters.search);
+                const matchesPriority = this.filters.priority === 'all' || proc.priority === this.filters.priority;
+                return matchesSearch && matchesPriority;
+            });
+            this.renderList();
+        },
+
+        renderList: function () {
+            els.list.innerHTML = '';
+            if (this.filteredProcesses.length > 0) {
+                this.filteredProcesses.forEach(proc => {
+                    renderProcessCard(proc, els.list, false, this);
+                });
+                els.list.style.display = 'block';
+                els.empty.style.display = 'none';
+            } else {
+                els.list.style.display = 'none';
+                els.empty.style.display = 'block';
+                els.empty.innerHTML = '<p>Nenhum processo encontrado com os filtros atuais.</p>';
+            }
+        },
+
+        saveNote: function (protocolo, note) {
+            this.notes[protocolo] = note;
+            localStorage.setItem('pmos_sei_notes', JSON.stringify(this.notes));
+            showNotification('Nota salva!', 2000);
+        },
+
+        getNote: function (protocolo) {
+            return this.notes[protocolo] || '';
+        }
+    };
+
+    initializeFileState(appState, "Dashboard SEI", "dashboard.sei", "sei-dashboard");
+    winData.currentAppInstance = appState;
+    appState.init();
+
+    // Bind global actions
+    els.syncBtn.onclick = () => appState.fetchProcessos();
+
+    return winId;
+}
+
