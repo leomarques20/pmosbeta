@@ -4,7 +4,7 @@
   publish = "."
 
 [functions]
-  included_files = ["netlify/functions/backend/**"]
+  included_files = []
 
 [build.environment]
   PYTHON_VERSION = "3.9"
