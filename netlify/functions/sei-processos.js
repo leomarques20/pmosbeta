@@ -149,10 +149,19 @@ exports.handler = async function (event, context) {
         const cookiesToUse = { ...cookies };
         const cookieString = stringifyCookies(cookiesToUse);
 
-        // Usa os campos ocultos e URL fornecidos pelo cliente (do desafio do captcha)
-        // Se não vierem (ex: chamada direta), teríamos que buscar, mas isso invalidaria o captcha anterior.
-        // Assumimos que o cliente passou corretamente.
+        // Usa os campos ocultos fornecidos, ou valores padrão conhecidos do SEI
+        // Os campos hdnAcao e hdnInfraPrefixoCookie são adicionados por JavaScript no cliente
+        // então podem não vir no hidden_fields
         const hiddenFields = hidden_fields || {};
+
+        // Adiciona valores padrão se não vieram
+        if (!hiddenFields['hdnAcao']) {
+            hiddenFields['hdnAcao'] = '1';  // Valor padrão observado
+        }
+        if (!hiddenFields['hdnInfraPrefixoCookie']) {
+            hiddenFields['hdnInfraPrefixoCookie'] = 'Sistema_Eletrônico_de_Informações';  // Valor padrão observado
+        }
+
         const loginUrlToUse = login_url || SEI_LOGIN_URL;
 
         // Monta dados do formulário manualmente com encoding correto
