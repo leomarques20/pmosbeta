@@ -101,13 +101,42 @@ exports.handler = async (event) => {
         // 5. Busca processos na página atual ou navega para a lista
         let processos = await page.evaluate(() => {
             const links = Array.from(document.querySelectorAll('a.processoVisualizado, a.processoNaoVisualizado'));
-            return links.map(link => ({
-                protocolo: link.textContent.trim(),
-                link_sei: link.href,
-                interessados: '',
-                atribuido_a: '',
-                unidade: 'Padrão'
-            }));
+            return links.map(link => {
+                // Tenta extrair a descrição do tooltip (onmouseover ou title)
+                let descricao = '';
+                const onmouseover = link.getAttribute('onmouseover');
+                if (onmouseover) {
+                    // Formato comum: return infraTooltipMostrar('Descrição do Processo', 'Texto da descrição');
+                    const match = onmouseover.match(/'[^']+',\s*'([^']+)'/);
+                    if (match && match[1]) {
+                        descricao = match[1];
+                    }
+                }
+                if (!descricao) {
+                    descricao = link.getAttribute('title') || '';
+                }
+
+                // Tenta encontrar interessados
+                let interessados = '';
+                const container = link.parentElement;
+                if (container) {
+                    const text = container.textContent;
+                    const protocolo = link.textContent.trim();
+                    const resto = text.replace(protocolo, '').trim();
+                    if (resto.length > 0) {
+                        interessados = resto;
+                    }
+                }
+
+                return {
+                    protocolo: link.textContent.trim(),
+                    link_sei: link.href,
+                    descricao: descricao,
+                    interessados: interessados,
+                    atribuido_a: '',
+                    unidade: 'Padrão'
+                };
+            });
         });
 
         // Se não encontrou processos, tenta navegar para a página de controle
@@ -120,13 +149,45 @@ exports.handler = async (event) => {
 
             processos = await page.evaluate(() => {
                 const links = Array.from(document.querySelectorAll('a.processoVisualizado, a.processoNaoVisualizado'));
-                return links.map(link => ({
-                    protocolo: link.textContent.trim(),
-                    link_sei: link.href,
-                    interessados: '',
-                    atribuido_a: '',
-                    unidade: 'Padrão'
-                }));
+                return links.map(link => {
+                    // Tenta extrair a descrição do tooltip (onmouseover ou title)
+                    let descricao = '';
+                    const onmouseover = link.getAttribute('onmouseover');
+                    if (onmouseover) {
+                        // Formato comum: return infraTooltipMostrar('Descrição do Processo', 'Texto da descrição');
+                        const match = onmouseover.match(/'[^']+',\s*'([^']+)'/);
+                        if (match && match[1]) {
+                            descricao = match[1];
+                        }
+                    }
+                    if (!descricao) {
+                        descricao = link.getAttribute('title') || '';
+                    }
+
+                    // Tenta encontrar interessados (geralmente em uma coluna próxima ou texto após o link)
+                    // No layout de divs, pode ser difícil sem estrutura fixa, mas vamos tentar pegar o texto do container pai
+                    let interessados = '';
+                    // Lógica simplificada: se houver texto após o link no mesmo container
+                    const container = link.parentElement;
+                    if (container) {
+                        const text = container.textContent;
+                        // Remove o protocolo do texto para tentar isolar o resto
+                        const protocolo = link.textContent.trim();
+                        const resto = text.replace(protocolo, '').trim();
+                        if (resto.length > 0) {
+                            interessados = resto; // Pode conter lixo, mas é um começo
+                        }
+                    }
+
+                    return {
+                        protocolo: link.textContent.trim(),
+                        link_sei: link.href,
+                        descricao: descricao,
+                        interessados: interessados,
+                        atribuido_a: '',
+                        unidade: 'Padrão'
+                    };
+                });
             });
         }
 

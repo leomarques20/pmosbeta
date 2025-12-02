@@ -249,12 +249,28 @@ export function openSeiDashboard() {
                     card.className = 'sei-process-card';
                     card.style.cssText = `background: var(--window-bg); border: 1px solid var(--separator-color); border-radius: 6px; padding: 12px; margin-bottom: 10px;`;
                     card.innerHTML = `
-                        <div style="display: flex; justify-content: space-between;">
-                            <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color);">${proc.protocolo}</a>
-                            <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px;">${proc.unidade}</span>
-                        </div>
-                        <div style="font-size: 0.9em; margin-top: 5px;">${proc.interessados}</div>
-                        <div style="font-size: 0.8em; color: var(--secondary-text-color); margin-top: 5px;">${proc.atribuido_a}</div>
+                        < div style = "display: flex; justify-content: space-between; align-items: flex-start;" >
+                            <div>
+                                <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
+                                <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">${proc.descricao || 'Sem descrição'}</div>
+                            </div>
+                            <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
+                        </div >
+
+                        ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
+                        ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
+
+                    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px;">
+                        <button class="app-btn-small" onclick="alert('Funcionalidade de Importar em breve!')" style="font-size: 0.8em; padding: 4px 8px;">
+                            <i class="fas fa-download"></i> Importar
+                        </button>
+                        <button class="app-btn-small" onclick="alert('Funcionalidade de Monitorar em breve!')" style="font-size: 0.8em; padding: 4px 8px;">
+                            <i class="fas fa-eye"></i> Monitorar
+                        </button>
+                        <button class="app-btn-small" onclick="window.open('${proc.link_sei}', '_blank')" style="font-size: 0.8em; padding: 4px 8px;">
+                            <i class="fas fa-external-link-alt"></i> Abrir
+                        </button>
+                    </div>
                     `;
                     els.list.appendChild(card);
                 });
@@ -264,7 +280,7 @@ export function openSeiDashboard() {
                 els.empty.innerHTML = '<p>Nenhum processo encontrado.</p>';
             }
         } catch (e) {
-            showNotification(`Erro: ${e.message}`, 5000);
+            showNotification(`Erro: ${e.message} `, 5000);
             els.empty.style.display = 'block';
             // Refresh captcha on error as it might be invalid now
             loadCaptcha();
