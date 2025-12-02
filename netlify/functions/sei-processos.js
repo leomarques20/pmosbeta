@@ -68,7 +68,7 @@ exports.handler = async function (event, context) {
             try {
                 // We need to set the cookie for the correct domain.
                 // Assuming standard SEI domain.
-                await jar.setCookie(`${key}=${value}; Domain = www.sei.mg.gov.br; Path =/`, SEI_LOGIN_URL);
+                await jar.setCookie(`${key}=${value}; Domain=www.sei.mg.gov.br; Path=/`, SEI_LOGIN_URL);
             } catch (e) {
                 console.warn("Error setting cookie:", key, e);
             }
