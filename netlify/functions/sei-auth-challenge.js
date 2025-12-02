@@ -4,9 +4,16 @@ const iconv = require('iconv-lite');
 
 exports.handler = async function (event, context) {
     const url = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI&infra_url=L3NlaS8=';
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
     return new Promise((resolve, reject) => {
-        https.get(url, (res) => {
+        const options = {
+            headers: {
+                'User-Agent': userAgent
+            }
+        };
+
+        https.get(url, options, (res) => {
             const chunks = [];
 
             res.on('data', (chunk) => {
@@ -40,7 +47,7 @@ exports.handler = async function (event, context) {
                     }
 
                     // Busca a imagem do captcha
-                    https.get(captchaUrl, (captchaRes) => {
+                    https.get(captchaUrl, options, (captchaRes) => {
                         const chunks = [];
 
                         captchaRes.on('data', (chunk) => {
