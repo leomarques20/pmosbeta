@@ -249,13 +249,13 @@ export function openSeiDashboard() {
                     card.className = 'sei-process-card';
                     card.style.cssText = `background: var(--window-bg); border: 1px solid var(--separator-color); border-radius: 6px; padding: 12px; margin-bottom: 10px;`;
                     card.innerHTML = `
-                        < div style = "display: flex; justify-content: space-between; align-items: flex-start;" >
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                             <div>
                                 <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
                                 <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">${proc.descricao || 'Sem descrição'}</div>
                             </div>
                             <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
-                        </div >
+                        </div>
 
                         ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
                         ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
