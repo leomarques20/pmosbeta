@@ -51,9 +51,10 @@ def get_sei_session():
         return session, captcha_base64
     except Exception as e:
         print(f"Erro ao iniciar sessão SEI: {e}")
-        return None, None
+        # Retorna sessão mesmo sem captcha, pois pode não ser obrigatório
+        return session, None
 
-def login_and_scrape(usuario, senha, captcha_text, cookies_dict, unidade_alvo=None, filtrar_meus=False):
+def login_and_scrape(usuario, senha, orgao, captcha_text, cookies_dict, unidade_alvo=None, filtrar_meus=False):
     """
     Realiza o login usando os cookies da sessão anterior (onde o captcha foi gerado)
     e raspa a lista de processos.
@@ -69,10 +70,13 @@ def login_and_scrape(usuario, senha, captcha_text, cookies_dict, unidade_alvo=No
     payload = {
         'txtUsuario': usuario,
         'pwdSenha': senha,
-        'txtCaptcha': captcha_text,
+        'selOrgao': orgao,
         'acao': 'infra_usuario_login', # Pode variar
         'sbmLogin': 'Acessar' # Pode variar
     }
+
+    if captcha_text:
+        payload['txtCaptcha'] = captcha_text
     
     # O SEI costuma postar para controlador.php?acao=infra_usuario_login
     # Mas muitas vezes o form action é vazio ou relativo.

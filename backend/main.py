@@ -20,7 +20,8 @@ app.add_middleware(
 class LoginRequest(BaseModel):
     usuario: str
     senha: str
-    captcha: str
+    orgao: Optional[str] = "GOVMG"
+    captcha: Optional[str] = None
     cookies: Dict[str, str]
     unidade_alvo: Optional[str] = None
     filtrar_meus: bool = False
@@ -53,6 +54,7 @@ async def get_processos(req: LoginRequest):
         processos = login_and_scrape(
             usuario=req.usuario,
             senha=req.senha,
+            orgao=req.orgao,
             captcha_text=req.captcha,
             cookies_dict=req.cookies,
             unidade_alvo=req.unidade_alvo,

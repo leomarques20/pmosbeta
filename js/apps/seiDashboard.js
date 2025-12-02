@@ -10,12 +10,12 @@ async function fetchCaptcha() {
     return await res.json();
 }
 
-async function fetchProcessos(usuario, senha, captcha, cookies, unidade_alvo, filtrar_meus) {
+async function fetchProcessos(usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus) {
     const res = await fetch(`${API_BASE}/processos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            usuario, senha, captcha, cookies, unidade_alvo, filtrar_meus
+            usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus
         })
     });
     if (!res.ok) {
@@ -37,6 +37,9 @@ export function openSeiDashboard() {
                 <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                     <input type="text" id="seiUser_${uniqueSuffix}" placeholder="Usuário SEI" class="app-input" style="flex: 1;">
                     <input type="password" id="seiPass_${uniqueSuffix}" placeholder="Senha SEI" class="app-input" style="flex: 1;">
+                </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <input type="text" id="seiOrgao_${uniqueSuffix}" placeholder="Órgão (ex: GOVMG)" class="app-input" style="flex: 1;" value="GOVMG">
                 </div>
                 
                 <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
@@ -78,6 +81,7 @@ export function openSeiDashboard() {
     const els = {
         user: winData.element.querySelector(`#seiUser_${uniqueSuffix}`),
         pass: winData.element.querySelector(`#seiPass_${uniqueSuffix}`),
+        orgao: winData.element.querySelector(`#seiOrgao_${uniqueSuffix}`),
         captchaInput: winData.element.querySelector(`#seiCaptchaInput_${uniqueSuffix}`),
         captchaImg: winData.element.querySelector(`#seiCaptchaImg_${uniqueSuffix}`),
         captchaPlaceholder: winData.element.querySelector(`#seiCaptchaPlaceholder_${uniqueSuffix}`),
@@ -113,8 +117,10 @@ export function openSeiDashboard() {
                 els.captchaPlaceholder.textContent = 'Sem Captcha';
             }
         } catch (e) {
-            console.error(e);
-            els.captchaPlaceholder.textContent = 'Erro';
+            console.warn("Captcha não carregado (pode ser opcional ou erro 404):", e);
+            els.captchaPlaceholder.textContent = 'Sem Captcha';
+            // Se falhar, assumimos que não tem captcha ou a API tá fora, 
+            // mas permitimos tentar logar se for só o captcha que falhou.
         }
     };
 
@@ -126,10 +132,11 @@ export function openSeiDashboard() {
     els.syncBtn.onclick = async () => {
         const user = els.user.value.trim();
         const pass = els.pass.value.trim();
+        const orgao = els.orgao.value.trim();
         const captcha = els.captchaInput.value.trim();
 
-        if (!user || !pass || !captcha) {
-            showNotification("Preencha usuário, senha e captcha.", 3000);
+        if (!user || !pass || !orgao) {
+            showNotification("Preencha usuário, senha e órgão.", 3000);
             return;
         }
 
@@ -141,7 +148,7 @@ export function openSeiDashboard() {
         els.syncBtn.disabled = true;
 
         try {
-            const data = await fetchProcessos(user, pass, captcha, currentCookies, null, els.filter.checked);
+            const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, null, els.filter.checked);
 
             els.list.innerHTML = '';
             if (data.processos && data.processos.length > 0) {
