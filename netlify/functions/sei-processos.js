@@ -133,6 +133,19 @@ exports.handler = async function (event, context) {
             if (name) hiddenFields[name] = value || '';
         });
 
+        // Verifica action do formulário
+        let formAction = $login('form').attr('action');
+        if (formAction && !formAction.startsWith('http')) {
+            // Resolve URL relativa
+            if (formAction.startsWith('/')) {
+                formAction = `https://www.sei.mg.gov.br${formAction}`;
+            } else {
+                // Assume relativo ao path atual (/sip/)
+                formAction = `https://www.sei.mg.gov.br/sip/${formAction}`;
+            }
+        }
+        const loginUrlToUse = formAction || SEI_LOGIN_URL;
+
         // Monta dados do formulário preservando campos ocultos originais
         const formData = new URLSearchParams();
 
@@ -156,7 +169,7 @@ exports.handler = async function (event, context) {
         }
 
         // 2. Faz o POST de login
-        const loginResponse = await makeRequest(SEI_LOGIN_URL, {
+        const loginResponse = await makeRequest(loginUrlToUse, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -259,7 +272,9 @@ exports.handler = async function (event, context) {
                     htmlSnippet: finalResponse.data ? finalResponse.data.substring(0, 500) : "EMPTY RESPONSE",
                     statusCode: finalResponse.statusCode,
                     finalUrl: finalResponse.finalUrl,
-                    redirectChain: finalResponse.redirectChain
+                    redirectChain: finalResponse.redirectChain,
+                    hiddenFieldsFound: hiddenFields,
+                    loginUrlUsed: loginUrlToUse
                 }
             })
         };
