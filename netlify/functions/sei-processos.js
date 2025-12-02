@@ -6,26 +6,64 @@ const { URLSearchParams, URL } = require('url');
 const SEI_BASE_URL = 'https://www.sei.mg.gov.br/sei';
 const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
 
-function makeRequest(url, options = {}) {
+function parseCookies(cookieHeader) {
+    const cookies = {};
+    if (!cookieHeader) return cookies;
+
+    // Se for array (set-cookie), junta
+    const list = Array.isArray(cookieHeader) ? cookieHeader : [cookieHeader];
+
+    list.forEach(c => {
+        // Pode vir múltiplos cookies numa string separados por vírgula ou ponto-e-vírgula
+        // Mas set-cookie geralmente é um por linha/item do array
+        const parts = c.split(';')[0].split('=');
+        if (parts.length >= 2) {
+            const key = parts[0].trim();
+            const val = parts.slice(1).join('=').trim();
+            cookies[key] = val;
+        }
+    });
+    return cookies;
+}
+
+function stringifyCookies(cookies) {
+    return Object.entries(cookies)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ');
+}
+
+function makeRequest(url, options = {}, redirectChain = []) {
     return new Promise((resolve, reject) => {
         const protocol = url.startsWith('https') ? https : http;
+        redirectChain.push(url);
 
         const req = protocol.request(url, options, (res) => {
             // Seguir redirecionamento
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 const redirectUrl = new URL(res.headers.location, url).toString();
-                // Preserva cookies no redirecionamento
-                const newOptions = { ...options, method: 'GET' }; // Redirecionamentos geralmente viram GET
-                delete newOptions.body; // Remove corpo no redirecionamento
 
-                // Atualiza cookies se houver
-                if (res.headers['set-cookie']) {
-                    const currentCookies = newOptions.headers['Cookie'] || '';
-                    const newCookies = res.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
-                    newOptions.headers['Cookie'] = currentCookies ? `${currentCookies}; ${newCookies}` : newCookies;
+                // Prepara novas opções
+                const newOptions = { ...options, method: 'GET' };
+                delete newOptions.body;
+
+                // Remove headers de POST
+                if (newOptions.headers) {
+                    delete newOptions.headers['Content-Type'];
+                    delete newOptions.headers['Content-Length'];
+                    delete newOptions.headers['Origin'];
+                    // Referer deve ser a URL anterior
+                    newOptions.headers['Referer'] = url;
                 }
 
-                makeRequest(redirectUrl, newOptions).then(resolve).catch(reject);
+                // Atualiza cookies
+                if (res.headers['set-cookie']) {
+                    const currentCookies = parseCookies(newOptions.headers['Cookie']);
+                    const newCookies = parseCookies(res.headers['set-cookie']);
+                    const mergedCookies = { ...currentCookies, ...newCookies };
+                    newOptions.headers['Cookie'] = stringifyCookies(mergedCookies);
+                }
+
+                makeRequest(redirectUrl, newOptions, redirectChain).then(resolve).catch(reject);
                 return;
             }
 
@@ -36,7 +74,13 @@ function makeRequest(url, options = {}) {
             });
 
             res.on('end', () => {
-                resolve({ data, headers: res.headers, statusCode: res.statusCode, finalUrl: url });
+                resolve({
+                    data,
+                    headers: res.headers,
+                    statusCode: res.statusCode,
+                    finalUrl: url,
+                    redirectChain
+                });
             });
         });
 
@@ -214,7 +258,8 @@ exports.handler = async function (event, context) {
                     linksFound: $('a.infraLinkProcesso').length,
                     htmlSnippet: finalResponse.data ? finalResponse.data.substring(0, 500) : "EMPTY RESPONSE",
                     statusCode: finalResponse.statusCode,
-                    finalUrl: finalResponse.finalUrl
+                    finalUrl: finalResponse.finalUrl,
+                    redirectChain: finalResponse.redirectChain
                 }
             })
         };
