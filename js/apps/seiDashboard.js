@@ -5,13 +5,13 @@ import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions 
 const API_BASE = '/api/sei';
 
 async function fetchCaptcha() {
-    const res = await fetch(`${API_BASE}/auth/challenge`);
+    const res = await fetch(`/.netlify/functions/sei-auth-challenge`);
     if (!res.ok) throw new Error("Falha ao carregar Captcha");
     return await res.json();
 }
 
 async function fetchProcessos(usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus) {
-    const res = await fetch(`${API_BASE}/processos`, {
+    const res = await fetch(`/.netlify/functions/sei-processos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

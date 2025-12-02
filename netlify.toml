@@ -1,11 +1,9 @@
 [build]
-  command = "python3 -m pip install -r backend/requirements.txt -t netlify/functions"
+  command = "echo 'Build completed'"
   functions = "netlify/functions"
   publish = "."
 
 [functions]
-  node_bundler = "esbuild"
-  included_files = []
 
 [build.environment]
   PYTHON_VERSION = "3.9"
