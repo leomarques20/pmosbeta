@@ -1,4 +1,5 @@
 import { generateId, showNotification } from '../main.js';
+import { openKanbanBoard } from './kanbanBoard.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
 // URL relativa para funcionar tanto local quanto no Netlify
@@ -245,34 +246,7 @@ export function openSeiDashboard() {
             els.list.innerHTML = '';
             if (data.processos && data.processos.length > 0) {
                 data.processos.forEach(proc => {
-                    const card = document.createElement('div');
-                    card.className = 'sei-process-card';
-                    card.style.cssText = `background: var(--window-bg); border: 1px solid var(--separator-color); border-radius: 6px; padding: 12px; margin-bottom: 10px;`;
-                    card.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                            <div>
-                                <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
-                                <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">${proc.descricao || 'Sem descrição'}</div>
-                            </div>
-                            <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
-                        </div>
-
-                        ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
-                        ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
-
-                    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px;">
-                        <button class="app-btn-small" onclick="alert('Funcionalidade de Importar em breve!')" style="font-size: 0.8em; padding: 4px 8px;">
-                            <i class="fas fa-download"></i> Importar
-                        </button>
-                        <button class="app-btn-small" onclick="alert('Funcionalidade de Monitorar em breve!')" style="font-size: 0.8em; padding: 4px 8px;">
-                            <i class="fas fa-eye"></i> Monitorar
-                        </button>
-                        <button class="app-btn-small" onclick="window.open('${proc.link_sei}', '_blank')" style="font-size: 0.8em; padding: 4px 8px;">
-                            <i class="fas fa-external-link-alt"></i> Abrir
-                        </button>
-                    </div>
-                    `;
-                    els.list.appendChild(card);
+                    renderProcessCard(proc, els.list);
                 });
                 els.list.style.display = 'block';
             } else {
@@ -289,6 +263,102 @@ export function openSeiDashboard() {
             els.syncBtn.disabled = false;
         }
     };
+
+    // Helper to render process card
+    function renderProcessCard(proc, container, isMonitored = false) {
+        const card = document.createElement('div');
+        card.className = 'sei-process-card';
+        card.style.cssText = `background: var(--window-bg); border: 1px solid var(--separator-color); border-radius: 6px; padding: 12px; margin-bottom: 10px;`;
+
+        const monitorBtnIcon = isMonitored ? 'fa-trash' : 'fa-eye';
+        const monitorBtnText = isMonitored ? 'Remover' : 'Monitorar';
+        const monitorBtnAction = isMonitored ? 'remove-monitor' : 'add-monitor';
+
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
+                    <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">${proc.descricao || 'Sem descrição'}</div>
+                </div>
+                <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
+            </div>
+            
+            ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
+            ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
+
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px;">
+                <button class="app-btn-small" id="btnImport_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
+                    <i class="fas fa-download"></i> Importar
+                </button>
+                <button class="app-btn-small" id="btnMonitor_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
+                    <i class="fas ${monitorBtnIcon}"></i> ${monitorBtnText}
+                </button>
+                <button class="app-btn-small" onclick="window.open('${proc.link_sei}', '_blank')" style="font-size: 0.8em; padding: 4px 8px;">
+                    <i class="fas fa-external-link-alt"></i> Abrir
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+
+        // Add event listeners for buttons
+        const btnImport = card.querySelector(`#btnImport_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnImport) {
+            btnImport.onclick = () => {
+                openKanbanBoard({
+                    importData: {
+                        title: `Processo SEI ${proc.protocolo}`,
+                        description: `Protocolo: ${proc.protocolo}\nUnidade: ${proc.unidade}\nLink: ${proc.link_sei}\n\n${proc.descricao || ''}\n\nInteressados: ${proc.interessados || 'N/A'}`
+                    }
+                });
+            };
+        }
+
+        const btnMonitor = card.querySelector(`#btnMonitor_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnMonitor) {
+            btnMonitor.onclick = () => {
+                const monitored = JSON.parse(localStorage.getItem('pmos_sei_monitored') || '[]');
+                if (isMonitored) {
+                    const newMonitored = monitored.filter(p => p.protocolo !== proc.protocolo);
+                    localStorage.setItem('pmos_sei_monitored', JSON.stringify(newMonitored));
+                    showNotification(`Processo ${proc.protocolo} removido dos monitorados.`, 3000);
+                    card.remove(); // Remove from view immediately
+                } else {
+                    if (!monitored.some(p => p.protocolo === proc.protocolo)) {
+                        monitored.push(proc);
+                        localStorage.setItem('pmos_sei_monitored', JSON.stringify(monitored));
+                        showNotification(`Processo ${proc.protocolo} adicionado aos monitorados!`, 3000);
+                    } else {
+                        showNotification(`Processo ${proc.protocolo} já está sendo monitorado.`, 3000);
+                    }
+                }
+            };
+        }
+    }
+
+    // Add Monitorados Button Action
+    const showMonitoredBtn = document.createElement('button');
+    showMonitoredBtn.className = 'app-button secondary';
+    showMonitoredBtn.innerHTML = '<i class="fas fa-list"></i> Monitorados';
+    showMonitoredBtn.style.marginLeft = '10px';
+    showMonitoredBtn.onclick = () => {
+        els.list.innerHTML = '';
+        els.empty.style.display = 'none';
+        const monitored = JSON.parse(localStorage.getItem('pmos_sei_monitored') || '[]');
+        if (monitored.length > 0) {
+            monitored.forEach(proc => renderProcessCard(proc, els.list, true));
+            els.list.style.display = 'block';
+        } else {
+            els.empty.style.display = 'block';
+            els.empty.innerHTML = '<p>Nenhum processo monitorado.</p>';
+        }
+    };
+
+    // Insert button in toolbar (hacky way since we don't have direct ref to toolbar container here easily, 
+    // but we can append to the header or replace the sync button container)
+    // Actually, let's just append it to the form container for now or find a better place.
+    // The toolbar is created in `content` string. Let's find a place to inject it.
+    // We can append it to `els.syncBtn.parentNode` if it exists, or just after `els.syncBtn`.
+    els.syncBtn.parentNode.insertBefore(showMonitoredBtn, els.syncBtn.nextSibling);
 
     const appState = {
         winId, appDataType: 'sei-dashboard',

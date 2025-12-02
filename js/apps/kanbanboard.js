@@ -1,7 +1,7 @@
 import { generateId, showNotification } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
-export function openKanbanBoard() {
+export function openKanbanBoard(options = {}) {
     const uniqueSuffix = generateId('kanban');
     const winId = window.windowManager.createWindow('Quadro Kanban', '', { width: '1200px', height: '750px', appType: 'kanban-board' });
     const content = `
@@ -118,18 +118,18 @@ export function openKanbanBoard() {
 
     const winData = window.windowManager.windows.get(winId); if (!winData) return winId;
     winData.element.querySelector('.window-content').innerHTML = content;
-    
+
     const appState = {
         winId,
         appDataType: 'kanban-board',
         boardData: { columns: [], tags: [] },
         editingCardId: null,
         editingColumnId: null,
-        
+
         boardEl: winData.element.querySelector(`#kanbanBoard_${uniqueSuffix}`),
         searchInput: winData.element.querySelector(`#searchInput_${uniqueSuffix}`),
         addColumnBtn: winData.element.querySelector(`#addColumnBtn_${uniqueSuffix}`),
-        
+
         cardModal: {
             overlay: winData.element.querySelector(`#cardModal_${uniqueSuffix}`),
             title: winData.element.querySelector(`#cardTitleInput`),
@@ -161,7 +161,7 @@ export function openKanbanBoard() {
         draggedColumnEl: null,
         placeholderEl: null,
 
-        getContrastColor: function(hexcolor) {
+        getContrastColor: function (hexcolor) {
             if (hexcolor.slice(0, 1) === '#') { hexcolor = hexcolor.slice(1); }
             const r = parseInt(hexcolor.substr(0, 2), 16);
             const g = parseInt(hexcolor.substr(2, 2), 16);
@@ -170,21 +170,21 @@ export function openKanbanBoard() {
             return (yiq >= 128) ? '#000000' : '#ffffff';
         },
 
-        getData: function() { 
-            return this.boardData; 
+        getData: function () {
+            return this.boardData;
         },
 
-        loadData: function(dataString, fileMeta) { 
+        loadData: function (dataString, fileMeta) {
             let data;
-            try { 
-                data = JSON.parse(dataString); 
+            try {
+                data = JSON.parse(dataString);
             } catch (e) {
-                showNotification("Erro ao ler arquivo Kanban.", 3000); 
-                this.loadDefaultBoard(); 
-                this.renderBoard(); 
+                showNotification("Erro ao ler arquivo Kanban.", 3000);
+                this.loadDefaultBoard();
+                this.renderBoard();
                 return;
             }
-            
+
             if (data && !data.tags) {
                 const globalTags = new Map();
                 let nextTagId = 1;
@@ -194,10 +194,10 @@ export function openKanbanBoard() {
                         (card.tags || []).forEach(oldTag => {
                             const tagKey = `${oldTag.text.toLowerCase()}|${oldTag.color}`;
                             if (!globalTags.has(tagKey)) {
-                                globalTags.set(tagKey, { 
-                                    id: `tag-${nextTagId++}`, 
-                                    text: oldTag.text, 
-                                    color: oldTag.color === 'gray' ? '#cccccc' : oldTag.color 
+                                globalTags.set(tagKey, {
+                                    id: `tag-${nextTagId++}`,
+                                    text: oldTag.text,
+                                    color: oldTag.color === 'gray' ? '#cccccc' : oldTag.color
                                 });
                             }
                             newTagIds.push(globalTags.get(tagKey).id);
@@ -209,26 +209,26 @@ export function openKanbanBoard() {
             }
 
             this.boardData = (data && Array.isArray(data.columns)) ? data : { columns: [], tags: [] };
-            (this.boardData.columns || []).forEach(col => { 
-                col.id = col.id || generateId('col'); 
-                (col.cards || []).forEach(card => { card.id = card.id || generateId('card'); }); 
-            }); 
-            this.fileId = fileMeta.id; 
-            this.markClean(); 
-            window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
-            this.renderBoard(); 
+            (this.boardData.columns || []).forEach(col => {
+                col.id = col.id || generateId('col');
+                (col.cards || []).forEach(card => { card.id = card.id || generateId('card'); });
+            });
+            this.fileId = fileMeta.id;
+            this.markClean();
+            window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
+            this.renderBoard();
         },
-        
-        init: function() { 
+
+        init: function () {
             setupAppToolbarActions(this);
-            this.addColumnBtn.onclick = () => this.addColumn(); 
+            this.addColumnBtn.onclick = () => this.addColumn();
             this.searchInput.oninput = () => this.filterBoard();
-            
+
             this.cardModal.saveBtn.onclick = () => this.saveCard();
             this.cardModal.cancelBtn.onclick = () => this.closeCardModal();
             this.cardModal.closeBtn.onclick = () => this.closeCardModal();
             this.cardModal.tagsContainer.addEventListener('click', (e) => {
-                if(e.target.classList.contains('remove-tag')) { e.target.parentElement.remove(); }
+                if (e.target.classList.contains('remove-tag')) { e.target.parentElement.remove(); }
             });
             this.cardModal.addExistingTagBtn.onclick = () => this.addExistingTagToModal();
             this.cardModal.createNewTagBtn.onclick = () => this.createNewTagInModal();
@@ -251,11 +251,30 @@ export function openKanbanBoard() {
             this.boardEl.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
             this.boardEl.addEventListener('touchend', (e) => this.handleTouchEnd(e));
 
-            if(!this.boardData.columns.length) this.loadDefaultBoard(); 
-            this.renderBoard(); 
+            if (!this.boardData.columns.length) this.loadDefaultBoard();
+
+            // Handle Import Data
+            if (options.importData) {
+                const firstCol = this.boardData.columns[0];
+                if (firstCol) {
+                    const newCard = {
+                        id: generateId('card'),
+                        title: options.importData.title || 'Nova Tarefa Importada',
+                        description: options.importData.description || '',
+                        priority: 'medium',
+                        dueDate: '',
+                        assignee: '',
+                        tags: []
+                    };
+                    firstCol.cards.push(newCard);
+                    showNotification('Processo importado para o Kanban!', 3000);
+                }
+            }
+
+            this.renderBoard();
         },
 
-        loadDefaultBoard: function() {
+        loadDefaultBoard: function () {
             this.boardData = {
                 tags: [
                     { id: 'tag-1', text: 'Bug', color: '#dc3545' },
@@ -269,12 +288,12 @@ export function openKanbanBoard() {
                 ]
             };
         },
-        
-        renderBoard: function(filteredData = null) {
-// Reset drag flags to ensure click works after modifications
-this.isTouchDragging = false;
-this.draggedCardEl = null;
-this.draggedColumnEl = null;
+
+        renderBoard: function (filteredData = null) {
+            // Reset drag flags to ensure click works after modifications
+            this.isTouchDragging = false;
+            this.draggedCardEl = null;
+            this.draggedColumnEl = null;
 
             const dataToRender = filteredData || this.boardData;
             this.boardEl.innerHTML = '';
@@ -282,7 +301,7 @@ this.draggedColumnEl = null;
                 const columnEl = document.createElement('div');
                 columnEl.className = 'kanban-column';
                 columnEl.dataset.columnId = column.id;
-                
+
                 const cardsHTML = column.cards.map(card => this.renderCard(card)).join('');
 
                 columnEl.innerHTML = `
@@ -300,10 +319,10 @@ this.draggedColumnEl = null;
             });
         },
 
-        renderCard: function(card) {
+        renderCard: function (card) {
             const priorityInfo = { high: 'high-priority', medium: 'medium-priority', low: 'low-priority' }[card.priority] || 'medium-priority';
             const formatDate = (dateString) => dateString ? new Date(dateString + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'Sem data';
-            
+
             const tagsHTML = (card.tags || []).map(tagId => {
                 const tag = this.boardData.tags.find(t => t.id === tagId);
                 if (!tag) return '';
@@ -323,7 +342,7 @@ this.draggedColumnEl = null;
                 </div>`;
         },
 
-        handleColumnTitleDblClick: function(e) {
+        handleColumnTitleDblClick: function (e) {
             const titleEl = e.target.closest('.column-title');
             if (!titleEl || this.boardEl.querySelector('.column-title-input')) return;
 
@@ -350,7 +369,7 @@ this.draggedColumnEl = null;
                 }
                 this.renderBoard();
             };
-            
+
             inputEl.addEventListener('blur', () => saveOrCancel(true));
             inputEl.addEventListener('keydown', (evt) => {
                 if (evt.key === 'Enter') {
@@ -362,7 +381,7 @@ this.draggedColumnEl = null;
             });
         },
 
-        openCardModal: function(cardId = null, columnId = null) {
+        openCardModal: function (cardId = null, columnId = null) {
             this.editingCardId = cardId;
             this.editingColumnId = columnId;
             let card = null;
@@ -373,29 +392,29 @@ this.draggedColumnEl = null;
                     if (foundCard) { card = foundCard; this.editingColumnId = col.id; break; }
                 }
             }
-            
+
             this.cardModal.overlay.style.display = 'flex';
             this.cardModal.title.value = card ? card.title : '';
             this.cardModal.priority.value = card ? card.priority : 'medium';
             this.cardModal.dueDate.value = card ? card.dueDate : '';
             this.cardModal.assignee.value = card ? card.assignee : '';
             this.cardModal.description.value = card ? card.description : '';
-            
+
             const cardTagIds = card ? card.tags || [] : [];
             this.renderAppliedCardTags(cardTagIds);
             this.populateExistingTagsDropdown(cardTagIds);
         },
-        
-        closeCardModal: function() { 
-            this.cardModal.overlay.style.display = 'none'; 
+
+        closeCardModal: function () {
+            this.cardModal.overlay.style.display = 'none';
         },
 
-        renderAppliedCardTags: function(tagIds) {
+        renderAppliedCardTags: function (tagIds) {
             this.cardModal.tagsContainer.innerHTML = '';
             tagIds.forEach(tagId => {
                 const tagData = this.boardData.tags.find(t => t.id === tagId);
                 if (!tagData) return;
-                
+
                 const tagEl = document.createElement('span');
                 tagEl.className = 'card-tag modal-tag';
                 tagEl.dataset.tagId = tagData.id;
@@ -408,7 +427,7 @@ this.draggedColumnEl = null;
             });
         },
 
-        populateExistingTagsDropdown: function(appliedTagIds) {
+        populateExistingTagsDropdown: function (appliedTagIds) {
             const select = this.cardModal.existingTagSelect;
             select.innerHTML = '<option value="">Selecionar existente...</option>';
             this.boardData.tags.forEach(tag => {
@@ -420,8 +439,8 @@ this.draggedColumnEl = null;
                 }
             });
         },
-        
-        addExistingTagToModal: function() {
+
+        addExistingTagToModal: function () {
             const selectedTagId = this.cardModal.existingTagSelect.value;
             if (!selectedTagId) return;
 
@@ -433,7 +452,7 @@ this.draggedColumnEl = null;
             }
         },
 
-        createNewTagInModal: function() {
+        createNewTagInModal: function () {
             const text = this.cardModal.newTagText.value.trim();
             const color = this.cardModal.newTagColor.value;
             if (!text) {
@@ -449,12 +468,12 @@ this.draggedColumnEl = null;
             currentTagIds.push(newTag.id);
             this.renderAppliedCardTags(currentTagIds);
             this.populateExistingTagsDropdown(currentTagIds);
-            
+
             this.cardModal.newTagText.value = '';
             showNotification(`Tag "${text}" criada e adicionada.`, 2000);
         },
 
-        saveCard: function() {
+        saveCard: function () {
             const cardTags = Array.from(this.cardModal.tagsContainer.children).map(el => el.dataset.tagId);
             const cardData = {
                 title: this.cardModal.title.value || 'Nova Tarefa',
@@ -472,21 +491,21 @@ this.draggedColumnEl = null;
                 const column = this.boardData.columns.find(col => col.id === this.editingColumnId);
                 if (column) { column.cards.push({ id: generateId('card'), ...cardData }); }
             }
-            this.markDirty(); 
-            this.closeCardModal(); 
+            this.markDirty();
+            this.closeCardModal();
             this.renderBoard();
         },
-        
-        openTagManager: function() {
+
+        openTagManager: function () {
             this.renderTagManager();
             this.tagManager.overlay.style.display = 'flex';
         },
 
-        closeTagManager: function() {
+        closeTagManager: function () {
             this.tagManager.overlay.style.display = 'none';
         },
 
-        renderTagManager: function() {
+        renderTagManager: function () {
             const list = this.tagManager.list;
             list.innerHTML = '';
             this.boardData.tags.forEach(tag => {
@@ -505,7 +524,7 @@ this.draggedColumnEl = null;
             });
         },
 
-        handleTagManagerClick: function(e) {
+        handleTagManagerClick: function (e) {
             const actionBtn = e.target.closest('[data-action]');
             if (!actionBtn) return;
             const action = actionBtn.dataset.action;
@@ -549,7 +568,7 @@ this.draggedColumnEl = null;
             }
         },
 
-        handleBoardClick: function(e) {
+        handleBoardClick: function (e) {
             if (this.isTouchDragging || this.draggedCardEl || this.draggedColumnEl) return;
             const addCardBtn = e.target.closest('[data-action="add-card"]');
             const deleteColBtn = e.target.closest('[data-action="delete-column"]');
@@ -570,16 +589,16 @@ this.draggedColumnEl = null;
             }
         },
 
-        addColumn: function() { 
-            const title = prompt("Nome da nova coluna:", "Nova Coluna"); 
-            if (title) { 
-                this.boardData.columns.push({ id: generateId('col'), title, cards: [] }); 
-                this.markDirty(); 
-                this.renderBoard(); 
-            } 
+        addColumn: function () {
+            const title = prompt("Nome da nova coluna:", "Nova Coluna");
+            if (title) {
+                this.boardData.columns.push({ id: generateId('col'), title, cards: [] });
+                this.markDirty();
+                this.renderBoard();
+            }
         },
 
-        filterBoard: function() {
+        filterBoard: function () {
             const query = this.searchInput.value.trim().toLowerCase();
             if (!query) { this.renderBoard(); return; }
             const filteredData = JSON.parse(JSON.stringify(this.boardData));
@@ -587,15 +606,15 @@ this.draggedColumnEl = null;
                 col.cards = col.cards.filter(card => {
                     const cardTags = (card.tags || []).map(tagId => this.boardData.tags.find(t => t.id === tagId)?.text || '').filter(Boolean);
                     return (card.title?.toLowerCase().includes(query)) ||
-                           (card.description?.toLowerCase().includes(query)) ||
-                           (card.assignee?.toLowerCase().includes(query)) ||
-                           (cardTags.some(tagText => tagText.toLowerCase().includes(query)))
+                        (card.description?.toLowerCase().includes(query)) ||
+                        (card.assignee?.toLowerCase().includes(query)) ||
+                        (cardTags.some(tagText => tagText.toLowerCase().includes(query)))
                 });
             });
             this.renderBoard(filteredData);
         },
-        
-        handleDragStart: function(e) {
+
+        handleDragStart: function (e) {
             if (e.target.classList.contains('column-drag-handle')) {
                 this.draggedColumnEl = e.target.closest('.kanban-column');
                 this.placeholderEl = document.createElement('div');
@@ -604,15 +623,15 @@ this.draggedColumnEl = null;
                 setTimeout(() => {
                     this.draggedColumnEl.classList.add('column-dragging');
                 }, 0);
-            } 
-            else if (e.target.closest('.kanban-card') && e.target.closest('.kanban-card').draggable) { 
-                this.draggedCardEl = e.target.closest('.kanban-card'); 
-                this.sourceColumnId = this.draggedCardEl.closest('.kanban-column').dataset.columnId; 
+            }
+            else if (e.target.closest('.kanban-card') && e.target.closest('.kanban-card').draggable) {
+                this.draggedCardEl = e.target.closest('.kanban-card');
+                this.sourceColumnId = this.draggedCardEl.closest('.kanban-column').dataset.columnId;
                 setTimeout(() => this.draggedCardEl.classList.add('dragging'), 0);
             }
         },
 
-        handleDragOver: function(e) {
+        handleDragOver: function (e) {
             e.preventDefault();
             if (this.draggedColumnEl) {
                 const targetColumn = e.target.closest('.kanban-column');
@@ -625,22 +644,22 @@ this.draggedColumnEl = null;
                         this.boardEl.insertBefore(this.placeholderEl, targetColumn.nextSibling);
                     }
                 }
-            } 
+            }
             else if (this.draggedCardEl) {
-                const columnContainer = e.target.closest('.cards-container'); 
-                if (columnContainer) { 
-                    columnContainer.classList.add('drag-over'); 
+                const columnContainer = e.target.closest('.cards-container');
+                if (columnContainer) {
+                    columnContainer.classList.add('drag-over');
                 }
             }
         },
 
-        handleDragLeave: function(e) {
+        handleDragLeave: function (e) {
             if (e.target.classList.contains('cards-container')) {
                 e.target.classList.remove('drag-over');
             }
         },
 
-        handleDrop: function(e) {
+        handleDrop: function (e) {
             e.preventDefault();
             if (this.draggedColumnEl) {
                 if (this.placeholderEl && this.placeholderEl.parentElement) {
@@ -649,12 +668,12 @@ this.draggedColumnEl = null;
                     this.boardData.columns.sort((a, b) => newColumnOrder.indexOf(a.id) - newColumnOrder.indexOf(b.id));
                     this.markDirty();
                 }
-            } 
+            }
             else if (this.draggedCardEl) {
                 const targetColumnEl = e.target.closest('.kanban-column');
                 const cardsContainer = e.target.closest('.cards-container');
                 if (cardsContainer) cardsContainer.classList.remove('drag-over');
-                
+
                 if (targetColumnEl) {
                     const cardId = this.draggedCardEl.dataset.cardId;
                     const targetColumnId = targetColumnEl.dataset.columnId;
@@ -677,8 +696,8 @@ this.draggedColumnEl = null;
                 }
             }
         },
-        
-        handleDragEnd: function(e) {
+
+        handleDragEnd: function (e) {
             if (this.draggedColumnEl) {
                 this.draggedColumnEl.classList.remove('column-dragging');
                 if (this.placeholderEl && this.placeholderEl.parentElement) {
@@ -686,64 +705,64 @@ this.draggedColumnEl = null;
                 }
                 this.draggedColumnEl = null;
                 this.placeholderEl = null;
-                this.renderBoard(); 
+                this.renderBoard();
             }
-            if (this.draggedCardEl) { 
+            if (this.draggedCardEl) {
                 this.draggedCardEl.classList.remove('dragging');
-                this.draggedCardEl = null; 
+                this.draggedCardEl = null;
                 this.sourceColumnId = null;
             }
         },
 
-        touchGhostEl: null, touchStartEl: null, touchStartX: 0, touchStartY: 0, 
+        touchGhostEl: null, touchStartEl: null, touchStartX: 0, touchStartY: 0,
         isTouchDragging: false, longPressTimer: null,
-        handleTouchStart: function(e) {
+        handleTouchStart: function (e) {
             // Nota: Arrastar colunas por toque não está implementado. Apenas cards.
-            const cardEl = e.target.closest('.kanban-card'); 
+            const cardEl = e.target.closest('.kanban-card');
             if (!cardEl) return;
             this.longPressTimer = setTimeout(() => {
-                this.isTouchDragging = true; 
-                this.touchStartEl = cardEl; 
+                this.isTouchDragging = true;
+                this.touchStartEl = cardEl;
                 this.sourceColumnId = cardEl.closest('.kanban-column').dataset.columnId;
-                cardEl.classList.add('touch-dragging'); 
-                this.touchGhostEl = cardEl.cloneNode(true); 
+                cardEl.classList.add('touch-dragging');
+                this.touchGhostEl = cardEl.cloneNode(true);
                 this.touchGhostEl.classList.add('touch-ghost');
-                document.body.appendChild(this.touchGhostEl); 
-                const touch = e.touches[0]; 
-                this.touchStartX = touch.clientX; 
+                document.body.appendChild(this.touchGhostEl);
+                const touch = e.touches[0];
+                this.touchStartX = touch.clientX;
                 this.touchStartY = touch.clientY;
-                this.touchGhostEl.style.width = `${cardEl.offsetWidth}px`; 
-                this.moveGhost(touch.clientX, touch.clientY); 
+                this.touchGhostEl.style.width = `${cardEl.offsetWidth}px`;
+                this.moveGhost(touch.clientX, touch.clientY);
                 e.preventDefault();
             }, 200);
         },
-        handleTouchMove: function(e) {
-            if (!this.isTouchDragging || !this.touchGhostEl) return; 
+        handleTouchMove: function (e) {
+            if (!this.isTouchDragging || !this.touchGhostEl) return;
             e.preventDefault();
-            const touch = e.touches[0]; 
-            this.moveGhost(touch.clientX, touch.clientY); 
+            const touch = e.touches[0];
+            this.moveGhost(touch.clientX, touch.clientY);
             this.touchGhostEl.style.display = 'none';
-            const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY); 
+            const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
             this.touchGhostEl.style.display = '';
             this.boardEl.querySelectorAll('.cards-container.drag-over').forEach(el => el.classList.remove('drag-over'));
-            const columnContainer = elementBelow ? elementBelow.closest('.cards-container') : null; 
-            if (columnContainer) { 
-                columnContainer.classList.add('drag-over'); 
+            const columnContainer = elementBelow ? elementBelow.closest('.cards-container') : null;
+            if (columnContainer) {
+                columnContainer.classList.add('drag-over');
             }
         },
-        handleTouchEnd: function(e) {
-            clearTimeout(this.longPressTimer); 
+        handleTouchEnd: function (e) {
+            clearTimeout(this.longPressTimer);
             if (!this.isTouchDragging || !this.touchGhostEl) {
-                this.isTouchDragging = false; 
+                this.isTouchDragging = false;
                 return;
             }
-            const touch = e.changedTouches[0]; 
+            const touch = e.changedTouches[0];
             this.touchGhostEl.style.display = 'none';
             const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
             const targetColumnEl = elementBelow ? elementBelow.closest('.kanban-column') : null;
             let cardMoved = false;
             if (targetColumnEl) {
-                const cardId = this.touchStartEl.dataset.cardId; 
+                const cardId = this.touchStartEl.dataset.cardId;
                 const targetColumnId = targetColumnEl.dataset.columnId;
                 const sourceColumn = this.boardData.columns.find(c => c.id === this.sourceColumnId);
                 const cardIndex = sourceColumn.cards.findIndex(c => c.id === cardId);
@@ -755,35 +774,35 @@ this.draggedColumnEl = null;
                         const targetCardId = targetCardEl.dataset.cardId;
                         const targetIndex = targetColumn.cards.findIndex(c => c.id === targetCardId);
                         targetColumn.cards.splice(targetIndex, 0, cardToMove);
-                    } else { 
-                        targetColumn.cards.push(cardToMove); 
+                    } else {
+                        targetColumn.cards.push(cardToMove);
                     }
                     cardMoved = true;
                 }
             }
 
-            this.touchStartEl.classList.remove('touch-dragging'); 
+            this.touchStartEl.classList.remove('touch-dragging');
             if (this.touchGhostEl && this.touchGhostEl.parentElement) {
                 this.touchGhostEl.parentElement.removeChild(this.touchGhostEl);
             }
             this.boardEl.querySelectorAll('.cards-container.drag-over').forEach(el => el.classList.remove('drag-over'));
-            this.touchGhostEl = null; 
-            this.touchStartEl = null; 
+            this.touchGhostEl = null;
+            this.touchStartEl = null;
             this.sourceColumnId = null;
             setTimeout(() => { this.isTouchDragging = false; }, 100);
-            
-            if (cardMoved) { 
-                this.markDirty(); 
-                this.renderBoard(); 
+
+            if (cardMoved) {
+                this.markDirty();
+                this.renderBoard();
             }
         },
-        moveGhost: function(x, y) { 
-            if (!this.touchGhostEl) return; 
-            this.touchGhostEl.style.left = `${x - this.touchGhostEl.offsetWidth / 2}px`; 
-            this.touchGhostEl.style.top = `${y - this.touchGhostEl.offsetHeight / 2}px`; 
+        moveGhost: function (x, y) {
+            if (!this.touchGhostEl) return;
+            this.touchGhostEl.style.left = `${x - this.touchGhostEl.offsetWidth / 2}px`;
+            this.touchGhostEl.style.top = `${y - this.touchGhostEl.offsetHeight / 2}px`;
         },
-        cleanup: function() { 
-            if(this.touchGhostEl && this.touchGhostEl.parentElement) {
+        cleanup: function () {
+            if (this.touchGhostEl && this.touchGhostEl.parentElement) {
                 this.touchGhostEl.parentElement.removeChild(this.touchGhostEl);
             }
             if (this.placeholderEl && this.placeholderEl.parentElement) {
