@@ -10,12 +10,12 @@ async function fetchCaptcha() {
     return await res.json();
 }
 
-async function fetchProcessos(usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus) {
+async function fetchProcessos(usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus, hidden_fields, login_url) {
     const res = await fetch(`/.netlify/functions/sei-processos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus
+            usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus, hidden_fields, login_url
         })
     });
     if (!res.ok) {
@@ -173,6 +173,8 @@ export function openSeiDashboard() {
     };
 
     let currentCookies = {};
+    let currentHiddenFields = {};
+    let currentLoginUrl = '';
 
     // Load saved user
     const savedUser = localStorage.getItem('pmos_sei_user');
@@ -192,6 +194,8 @@ export function openSeiDashboard() {
                 els.captchaImg.style.display = 'block';
                 els.captchaPlaceholder.style.display = 'none';
                 currentCookies = data.cookies;
+                currentHiddenFields = data.hidden_fields;
+                currentLoginUrl = data.login_url;
             } else {
                 els.captchaPlaceholder.textContent = 'Sem Captcha';
             }
@@ -227,7 +231,7 @@ export function openSeiDashboard() {
         els.syncBtn.disabled = true;
 
         try {
-            const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, null, els.filter.checked);
+            const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, null, els.filter.checked, currentHiddenFields, currentLoginUrl);
 
             els.list.innerHTML = '';
             if (data.processos && data.processos.length > 0) {

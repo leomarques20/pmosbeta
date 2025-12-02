@@ -49,6 +49,29 @@ exports.handler = async function (event, context) {
                                 }
                             });
 
+                            // Extrai campos ocultos
+                            const hiddenFields = {};
+                            const hiddenMatches = data.matchAll(/<input[^>]*type=["']hidden["'][^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["']/g);
+                            for (const match of hiddenMatches) {
+                                hiddenFields[match[1]] = match[2];
+                            }
+
+                            // Extrai action do form
+                            let loginUrl = url;
+                            const actionMatch = data.match(/<form[^>]*action=["']([^"']+)["']/);
+                            if (actionMatch && actionMatch[1]) {
+                                let action = actionMatch[1];
+                                if (!action.startsWith('http')) {
+                                    if (action.startsWith('/')) {
+                                        loginUrl = 'https://www.sei.mg.gov.br' + action;
+                                    } else {
+                                        loginUrl = 'https://www.sei.mg.gov.br/sip/' + action;
+                                    }
+                                } else {
+                                    loginUrl = action;
+                                }
+                            }
+
                             resolve({
                                 statusCode: 200,
                                 headers: {
@@ -57,7 +80,9 @@ exports.handler = async function (event, context) {
                                 },
                                 body: JSON.stringify({
                                     captcha_image: captchaBase64,
-                                    cookies: cookies
+                                    cookies: cookies,
+                                    hidden_fields: hiddenFields,
+                                    login_url: loginUrl
                                 })
                             });
                         });

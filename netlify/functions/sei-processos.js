@@ -143,75 +143,17 @@ exports.handler = async function (event, context) {
     }
 
     try {
-        const { usuario, senha, orgao, captcha, cookies } = JSON.parse(event.body);
+        const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = JSON.parse(event.body);
 
-        // 1. Acessa a página de login para pegar cookies iniciais e campos ocultos
-        const loginPageResponse = await makeRequest(SEI_LOGIN_URL, {
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-        });
+        // Combina com cookies do cliente
+        const cookiesToUse = { ...cookies };
+        const cookieString = stringifyCookies(cookiesToUse);
 
-        // Extrai cookies da página de login
-        const initialCookies = {};
-        (loginPageResponse.headers['set-cookie'] || []).forEach(cookie => {
-            const parts = cookie.split(';')[0].split('=');
-            if (parts.length === 2) initialCookies[parts[0]] = parts[1];
-        });
-
-        // Combina com cookies do cliente (priorizando os novos do servidor)
-        const cookiesToUse = { ...cookies, ...initialCookies };
-        const cookieString = Object.entries(cookiesToUse).map(([k, v]) => `${k}=${v}`).join('; ');
-
-        // Extrai campos ocultos do formulário
-        const $login = cheerio.load(loginPageResponse.data);
-        const hiddenFields = {};
-        $login('input[type="hidden"]').each((i, el) => {
-            const name = $login(el).attr('name');
-            const value = $login(el).attr('value');
-            if (name) hiddenFields[name] = value || '';
-        });
-
-        // Verifica action do formulário
-        let formAction = $login('form').attr('action');
-        if (formAction && !formAction.startsWith('http')) {
-            // Resolve URL relativa
-            if (formAction.startsWith('/')) {
-                formAction = `https://www.sei.mg.gov.br${formAction}`;
-            } else {
-                // Assume relativo ao path atual (/sip/)
-                formAction = `https://www.sei.mg.gov.br/sip/${formAction}`;
-            }
-        }
-
-        // Se a action não tiver parâmetros, mas a URL original tiver, tenta preservar
-        if (formAction && !formAction.includes('?')) {
-            const originalQuery = SEI_LOGIN_URL.split('?')[1];
-            if (originalQuery) {
-                formAction += `?${originalQuery}`;
-            }
-        }
-
-        const loginUrlToUse = formAction || SEI_LOGIN_URL;
-
-        // Extrai opções do órgão (selOrgao)
-        const orgaoOptions = {};
-        $login('select[name="selOrgao"] option').each((i, el) => {
-            const val = $login(el).attr('value');
-            const text = $login(el).text().trim();
-            if (val) orgaoOptions[val] = text;
-        });
-
-        // Tenta mapear o órgão fornecido
-        let orgaoToUse = orgao || '0';
-        // Se o valor enviado não estiver nas chaves, tenta achar pelo texto
-        if (orgao && !orgaoOptions[orgao]) {
-            const foundEntry = Object.entries(orgaoOptions).find(([k, v]) => v.includes(orgao));
-            if (foundEntry) {
-                orgaoToUse = foundEntry[0];
-            }
-        }
+        // Usa os campos ocultos e URL fornecidos pelo cliente (do desafio do captcha)
+        // Se não vierem (ex: chamada direta), teríamos que buscar, mas isso invalidaria o captcha anterior.
+        // Assumimos que o cliente passou corretamente.
+        const hiddenFields = hidden_fields || {};
+        const loginUrlToUse = login_url || SEI_LOGIN_URL;
 
         // Monta dados do formulário manualmente com encoding correto
         const formParams = [];
@@ -228,7 +170,7 @@ exports.handler = async function (event, context) {
 
         filteredParams.push(`txtUsuario=${urlEncodeISO(usuario)}`);
         filteredParams.push(`pwdSenha=${urlEncodeISO(senha)}`);
-        filteredParams.push(`selOrgao=${urlEncodeISO(orgaoToUse)}`);
+        filteredParams.push(`selOrgao=${urlEncodeISO(orgao || '0')}`); // Mapeamento de órgão deve ser feito no frontend ou aqui se tivermos a lista
 
         // Garante que sbmLogin exista
         if (!hiddenFields['sbmLogin']) {
@@ -238,6 +180,7 @@ exports.handler = async function (event, context) {
         if (captcha) {
             filteredParams.push(`txtCaptcha=${urlEncodeISO(captcha)}`);
         }
+
         const bodyString = filteredParams.join('&');
 
         // 2. Faz o POST de login
