@@ -236,48 +236,6 @@ export function openSeiDashboard() {
 
     els.refreshBtn.onclick = loadCaptcha;
 
-    els.syncBtn.onclick = async () => {
-        const user = els.user.value.trim();
-        const pass = els.pass.value.trim();
-        const orgao = els.orgao.value.trim();
-        const captcha = els.captchaInput.value.trim();
-
-        if (!user || !pass || !orgao) {
-            showNotification("Preencha usuário, senha e órgão.", 3000);
-            return;
-        }
-
-        localStorage.setItem('pmos_sei_user', user);
-
-        els.loading.style.display = 'block';
-        els.empty.style.display = 'none';
-        els.list.style.display = 'none';
-        els.syncBtn.disabled = true;
-
-        try {
-            const data = await fetchProcessos(user, pass, orgao, captcha);
-
-            els.list.innerHTML = '';
-            if (data.processos && data.processos.length > 0) {
-                data.processos.forEach(proc => {
-                    renderProcessCard(proc, els.list);
-                });
-                els.list.style.display = 'block';
-            } else {
-                els.empty.style.display = 'block';
-                els.empty.innerHTML = '<p>Nenhum processo encontrado.</p>';
-            }
-        } catch (e) {
-            showNotification(`Erro: ${e.message} `, 5000);
-            els.empty.style.display = 'block';
-            // Refresh captcha on error as it might be invalid now
-            loadCaptcha();
-        } finally {
-            els.loading.style.display = 'none';
-            els.syncBtn.disabled = false;
-        }
-    };
-
     // Helper to render process card
     function renderProcessCard(proc, container, isMonitored = false, appState = null) {
         const card = document.createElement('div');
