@@ -1,4 +1,4 @@
-const chromium = require('chrome-aws-lambda');
+const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
 exports.handler = async (event) => {
@@ -17,12 +17,16 @@ exports.handler = async (event) => {
     try {
         console.log('Launching browser...');
 
+        // Configurações para @sparticuz/chromium
+        chromium.setGraphicsMode = false;
+
         // Lança navegador Chrome headless
         browser = await puppeteer.launch({
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath,
-            headless: chromium.headless
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+            ignoreHTTPSErrors: true
         });
 
         const page = await browser.newPage();
