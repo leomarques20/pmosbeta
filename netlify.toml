@@ -1,10 +1,11 @@
 [build]
-  command = "mkdir -p netlify/functions/backend && cp backend/main.py netlify/functions/backend/main.py && cp backend/sei_scraper.py netlify/functions/backend/sei_scraper.py && cp backend/__init__.py netlify/functions/backend/__init__.py && pip install -r backend/requirements.txt -t netlify/functions"
+  command = "mkdir -p netlify/functions/backend && cp backend/main.py netlify/functions/backend/main.py && cp backend/sei_scraper.py netlify/functions/backend/sei_scraper.py && cp backend/__init__.py netlify/functions/backend/__init__.py && python3 -m pip install -r backend/requirements.txt -t netlify/functions"
   functions = "netlify/functions"
   publish = "."
 
 [functions]
   external_node_modules = ["python-multipart"]
+  included_files = ["netlify/functions/backend/**"]
 
 [build.environment]
   PYTHON_VERSION = "3.9"

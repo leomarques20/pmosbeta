@@ -5,28 +5,43 @@
 // before other modules (like auth.js) execute. This ensures that Firebase
 // configuration values are available when the app initializes.
 (function () {
-  // Provide a default empty object in case the fetch fails
   window.env = {};
+
+  function isValidJson(xhr) {
+    const contentType = xhr.getResponseHeader("content-type");
+    return xhr.status === 200 && contentType && contentType.includes("application/json");
+  }
+
   try {
     var xhr = new XMLHttpRequest();
-    // The Netlify function at `/.netlify/functions/env` returns the
-    // Firebase configuration stored in Netlify environment variables.
-    xhr.open('GET', '/.netlify/functions/env', false); // synchronous request
+    xhr.open('GET', '/.netlify/functions/env', false);
     xhr.send(null);
-    if (xhr.status === 200) {
-      // Parse the JSON response and assign it to window.env
-      window.env = JSON.parse(xhr.responseText);
-    } else {
-      console.warn('Failed to load environment variables from Netlify function. Trying env.json...');
-      // Fallback: Try loading from env.json
+
+    if (isValidJson(xhr)) {
+      try {
+        window.env = JSON.parse(xhr.responseText);
+        console.log('Loaded env from Netlify Function');
+      } catch (e) {
+        console.warn('Failed to parse Netlify Function response', e);
+      }
+    }
+
+    // Fallback if function failed or returned empty/invalid
+    if (!window.env.FIREBASE_API_KEY) {
+      console.warn('Netlify Function failed or empty. Trying env.json...');
       var xhrLocal = new XMLHttpRequest();
       xhrLocal.open('GET', '/env.json', false);
       xhrLocal.send(null);
-      if (xhrLocal.status === 200) {
-        window.env = JSON.parse(xhrLocal.responseText);
-        console.log('Loaded environment variables from env.json');
+
+      if (isValidJson(xhrLocal)) {
+        try {
+          window.env = JSON.parse(xhrLocal.responseText);
+          console.log('Loaded env from env.json');
+        } catch (e) {
+          console.error('Failed to parse env.json', e);
+        }
       } else {
-        console.error('Failed to load environment variables from env.json: HTTP', xhrLocal.status);
+        console.error('env.json not found or not JSON (likely 404 rewrite)');
       }
     }
   } catch (e) {
