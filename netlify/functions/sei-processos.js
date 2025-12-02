@@ -36,7 +36,7 @@ function makeRequest(url, options = {}) {
             });
 
             res.on('end', () => {
-                resolve({ data, headers: res.headers, statusCode: res.statusCode });
+                resolve({ data, headers: res.headers, statusCode: res.statusCode, finalUrl: url });
             });
         });
 
@@ -141,24 +141,35 @@ exports.handler = async function (event, context) {
             .map(([key, val]) => `${key}=${val}`)
             .join('; ');
 
-        // Agora acessa a página de controle de processos no SEI
-        const processosResponse = await makeRequest(`${SEI_BASE_URL}/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`, {
-            method: 'GET',
-            headers: {
-                'Cookie': newCookieString,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': SEI_LOGIN_URL,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+        let finalResponse = loginResponse;
+
+        // Se o loginResponse não tiver tabela de processos, tenta acessar a URL final ou a padrão
+        if (!loginResponse.data.includes('infraTable')) {
+            let targetUrl = loginResponse.finalUrl;
+
+            // Se a URL final for a de login (falha ou não redirecionou), força a de controle
+            if (targetUrl.includes('login.php')) {
+                targetUrl = `${SEI_BASE_URL}/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`;
             }
-        });
+
+            finalResponse = await makeRequest(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'Cookie': newCookieString,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': SEI_LOGIN_URL,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+                }
+            });
+        }
 
         // Parse HTML para extrair processos
-        const $ = cheerio.load(processosResponse.data);
+        const $ = cheerio.load(finalResponse.data);
         const processos = [];
 
         // Debug: verifica se logou com sucesso
-        const hasLoginForm = processosResponse.data.includes('txtUsuario') || processosResponse.data.includes('pwdSenha');
+        const hasLoginForm = finalResponse.data.includes('txtUsuario') || finalResponse.data.includes('pwdSenha');
         const hasErrorMessage = $('.infraMensagemAlerta, .infraMensagemErro').text();
 
         // Procura tabelas de processos
@@ -201,13 +212,12 @@ exports.handler = async function (event, context) {
                     tablesFound: $('table.infraTable').length,
                     rowsFound: $('table.infraTable tr').length,
                     linksFound: $('a.infraLinkProcesso').length,
-                    htmlSnippet: processosResponse.data ? processosResponse.data.substring(0, 500) : "EMPTY RESPONSE",
-                    statusCode: processosResponse.statusCode,
-                    responseHeaders: processosResponse.headers
+                    htmlSnippet: finalResponse.data ? finalResponse.data.substring(0, 500) : "EMPTY RESPONSE",
+                    statusCode: finalResponse.statusCode,
+                    finalUrl: finalResponse.finalUrl
                 }
             })
         };
-
     } catch (error) {
         console.error('Erro:', error);
         return {
