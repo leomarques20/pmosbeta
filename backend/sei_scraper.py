@@ -3,7 +3,8 @@ from bs4 import BeautifulSoup
 import base64
 import re
 
-SEI_BASE_URL = "https://sei.sistema.mg.gov.br/sei"
+SEI_BASE_URL = "https://www.sei.mg.gov.br/sei"
+SEI_LOGIN_URL = "https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI"
 
 def get_sei_session():
     """
@@ -17,10 +18,8 @@ def get_sei_session():
 
     try:
         # 1. Acessa a página de login para pegar cookies e gerar o captcha
-        resp = session.get(f"{SEI_BASE_URL}/controlador_externo.php?acao=usuario_externo_logar&id_orgao_acesso_externo=0") 
-        # Nota: A URL acima é de usuário externo, mas o SEI padrão redireciona ou tem login interno.
-        # Vamos tentar a URL padrão de login interno que o usuário forneceu antes.
-        resp = session.get(f"{SEI_BASE_URL}/")
+        # O usuário forneceu uma URL de SIP, vamos tentar acessá-la.
+        resp = session.get(SEI_LOGIN_URL)
         
         soup = BeautifulSoup(resp.content, 'html.parser')
         
@@ -32,8 +31,19 @@ def get_sei_session():
             # O src geralmente é "controlador.php?acao=infra_captcha..."
             captcha_src = captcha_img.get('src')
             if captcha_src:
-                # Baixa a imagem do captcha
-                captcha_url = f"{SEI_BASE_URL}/{captcha_src}"
+                # Se o src for relativo, monta a URL completa.
+                # Cuidado: se estiver no /sip/, o relativo pode ser diferente.
+                # Mas geralmente o captcha vem do /sei/
+                if captcha_src.startswith('http'):
+                    captcha_url = captcha_src
+                elif captcha_src.startswith('/'):
+                    captcha_url = f"https://www.sei.mg.gov.br{captcha_src}"
+                else:
+                    # Relativo simples, assume que está na mesma base do request (SIP ou SEI)
+                    # Se o login é no SIP, o captcha pode estar no SIP.
+                    base_req = SEI_LOGIN_URL.rsplit('/', 1)[0]
+                    captcha_url = f"{base_req}/{captcha_src}"
+
                 captcha_resp = session.get(captcha_url)
                 if captcha_resp.status_code == 200:
                     captcha_base64 = base64.b64encode(captcha_resp.content).decode('utf-8')

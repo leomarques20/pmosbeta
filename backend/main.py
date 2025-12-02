@@ -25,6 +25,10 @@ class LoginRequest(BaseModel):
     unidade_alvo: Optional[str] = None
     filtrar_meus: bool = False
 
+@app.get("/api")
+async def root():
+    return {"status": "ok", "message": "SEI API is running"}
+
 @app.get("/api/sei/auth/challenge")
 async def get_challenge():
     """
