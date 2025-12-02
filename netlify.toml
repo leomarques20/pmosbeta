@@ -4,7 +4,6 @@
   publish = "."
 
 [functions]
-  external_node_modules = ["python-multipart"]
   included_files = ["netlify/functions/backend/**"]
 
 [build.environment]
