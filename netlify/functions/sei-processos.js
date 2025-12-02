@@ -52,10 +52,31 @@ async function requestWithCookies(client, config, jar, url) {
 
 exports.handler = async function (event, context) {
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+        return {
+            statusCode: 405,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({ error: 'Method not allowed' })
+        };
     }
 
-    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = JSON.parse(event.body);
+    let payload;
+    try {
+        payload = JSON.parse(event.body || '{}');
+    } catch (err) {
+        return {
+            statusCode: 400,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({ error: 'Corpo da requisição inválido.' })
+        };
+    }
+
+    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = payload;
     const SEI_BASE_URL = 'https://www.sei.mg.gov.br';
     const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
 
@@ -157,7 +178,9 @@ exports.handler = async function (event, context) {
             // Still on login page
             const $ = cheerio.load(html);
             const msg = $('#divInfraMensagens').text().trim();
-            throw new Error(msg || "Falha no login. Verifique as credenciais e o captcha.");
+            const err = new Error(msg || "Falha no login. Verifique as credenciais e o captcha.");
+            err.statusCode = 401;
+            throw err;
         }
 
         // If not on process list, try to navigate to it
@@ -239,11 +262,12 @@ exports.handler = async function (event, context) {
 
     } catch (error) {
         console.error("SEI Processos Error:", error);
+        const statusCode = error.statusCode || 500;
         return {
-            statusCode: 500,
+            statusCode,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
             body: JSON.stringify({
-                error: error.message,
+                error: error.message || 'Erro desconhecido ao buscar processos.',
                 processos: []
             })
         };
