@@ -1,4 +1,5 @@
 const https = require('https');
+const cheerio = require('cheerio');
 
 exports.handler = async function (event, context) {
     const url = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI&infra_url=L3NlaS8=';
@@ -12,11 +13,14 @@ exports.handler = async function (event, context) {
             });
 
             res.on('end', () => {
-                // Procura pelo captcha na página
-                const captchaMatch = data.match(/id="lblCaptcha"[^>]*src="([^"]+)"/);
+                const $ = cheerio.load(data);
 
-                if (captchaMatch && captchaMatch[1]) {
-                    let captchaUrl = captchaMatch[1];
+                // Procura pelo captcha na página
+                const $captchaImg = $('#lblCaptcha');
+                const captchaSrc = $captchaImg.attr('src');
+
+                if (captchaSrc) {
+                    let captchaUrl = captchaSrc;
 
                     // Monta URL completa do captcha
                     if (!captchaUrl.startsWith('http')) {
@@ -51,16 +55,17 @@ exports.handler = async function (event, context) {
 
                             // Extrai campos ocultos
                             const hiddenFields = {};
-                            const hiddenMatches = data.matchAll(/<input[^>]*type=["']hidden["'][^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["']/g);
-                            for (const match of hiddenMatches) {
-                                hiddenFields[match[1]] = match[2];
-                            }
+                            $('input[type="hidden"]').each((i, el) => {
+                                const name = $(el).attr('name');
+                                const value = $(el).attr('value');
+                                if (name) hiddenFields[name] = value || '';
+                            });
 
                             // Extrai action do form
                             let loginUrl = url;
-                            const actionMatch = data.match(/<form[^>]*action=["']([^"']+)["']/);
-                            if (actionMatch && actionMatch[1]) {
-                                let action = actionMatch[1];
+                            const formAction = $('form').attr('action');
+                            if (formAction) {
+                                let action = formAction;
                                 if (!action.startsWith('http')) {
                                     if (action.startsWith('/')) {
                                         loginUrl = 'https://www.sei.mg.gov.br' + action;
@@ -69,6 +74,14 @@ exports.handler = async function (event, context) {
                                     }
                                 } else {
                                     loginUrl = action;
+                                }
+                            }
+
+                            // Se a action não tiver parâmetros, mas a URL original tiver, tenta preservar
+                            if (loginUrl && !loginUrl.includes('?')) {
+                                const originalQuery = url.split('?')[1];
+                                if (originalQuery) {
+                                    loginUrl += `?${originalQuery}`;
                                 }
                             }
 
