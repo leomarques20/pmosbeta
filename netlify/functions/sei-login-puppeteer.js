@@ -154,14 +154,20 @@ exports.handler = async (event) => {
                     let descricao = '';
                     const onmouseover = link.getAttribute('onmouseover');
                     if (onmouseover) {
-                        // Formato comum: return infraTooltipMostrar('Descrição do Processo', 'Texto da descrição');
-                        const match = onmouseover.match(/'[^']+',\s*'([^']+)'/);
-                        if (match && match[1]) {
-                            descricao = match[1];
+                        // Formato esperado: return infraTooltipMostrar('Título', 'Descrição');
+                        // Regex captura: 1=Título, 2=Descrição. Suporta aspas simples ou duplas.
+                        const match = onmouseover.match(/infraTooltipMostrar\s*\(\s*(?:'|")(.*?)(?:'|")\s*,\s*(?:'|")(.*?)(?:'|")\s*\)/);
+                        if (match && match[2]) {
+                            descricao = match[2];
                         }
                     }
                     if (!descricao) {
-                        descricao = link.getAttribute('title') || '';
+                        // Evita usar o title se ele for igual ao protocolo (comum em alguns casos)
+                        const title = link.getAttribute('title') || '';
+                        const text = link.textContent.trim();
+                        if (title && title !== text) {
+                            descricao = title;
+                        }
                     }
 
                     // Tenta encontrar interessados (geralmente em uma coluna próxima ou texto após o link)
