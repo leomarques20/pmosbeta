@@ -1,6 +1,6 @@
 [build]
-  command = "mkdir -p functions/backend && cp backend/main.py functions/backend/main.py && cp backend/sei_scraper.py functions/backend/sei_scraper.py && cp backend/__init__.py functions/backend/__init__.py && pip install -r backend/requirements.txt -t functions"
-  functions = "functions"
+  command = "mkdir -p netlify/functions/backend && cp backend/main.py netlify/functions/backend/main.py && cp backend/sei_scraper.py netlify/functions/backend/sei_scraper.py && cp backend/__init__.py netlify/functions/backend/__init__.py && pip install -r backend/requirements.txt -t netlify/functions"
+  functions = "netlify/functions"
   publish = "."
 
 [functions]
