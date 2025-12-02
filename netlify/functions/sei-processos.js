@@ -52,23 +52,45 @@ async function requestWithCookies(client, config, jar, url) {
 
 exports.handler = async function (event, context) {
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+        return {
+            statusCode: 405,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({ error: 'Method not allowed' })
+        };
     }
 
-    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = JSON.parse(event.body);
-    const SEI_BASE_URL = 'https://www.sei.mg.gov.br';
+    let payload;
+    try {
+        payload = JSON.parse(event.body || '{}');
+    } catch (err) {
+        return {
+            statusCode: 400,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({ error: 'Corpo da requisição inválido.' })
+        };
+    }
+
+    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = payload;
     const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
+    const loginTarget = login_url || SEI_LOGIN_URL;
+    const loginUrlObj = new URL(loginTarget);
+    const SEI_BASE_URL = loginUrlObj.origin;
 
     // Setup Cookie Jar
-    const jar = new CookieJar();
+    const jar = new CookieJar(undefined, { rejectPublicSuffixes: false });
 
     // Restore cookies from frontend
     if (cookies) {
         for (const [key, value] of Object.entries(cookies)) {
             try {
-                // We need to set the cookie for the correct domain.
-                // Assuming standard SEI domain.
-                await jar.setCookie(`${key}=${value}; Domain=www.sei.mg.gov.br; Path=/`, SEI_LOGIN_URL);
+                // Map cookies back to the login host to preserve session.
+                await jar.setCookie(`${key}=${value}; Domain=${loginUrlObj.hostname}; Path=/`, loginTarget);
             } catch (e) {
                 console.warn("Error setting cookie:", key, e);
             }
@@ -78,8 +100,8 @@ exports.handler = async function (event, context) {
     const client = axios.create({
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': 'https://www.sei.mg.gov.br',
-            'Referer': SEI_LOGIN_URL
+            'Origin': SEI_BASE_URL,
+            'Referer': loginTarget
         },
         responseType: 'arraybuffer',
         validateStatus: () => true, // Handle all status codes manually
@@ -111,7 +133,6 @@ exports.handler = async function (event, context) {
         }
 
         const bodyString = formParams.join('&');
-        const loginTarget = login_url || SEI_LOGIN_URL;
 
         // 1. Perform Login
         let response = await requestWithCookies(client, {
@@ -157,7 +178,9 @@ exports.handler = async function (event, context) {
             // Still on login page
             const $ = cheerio.load(html);
             const msg = $('#divInfraMensagens').text().trim();
-            throw new Error(msg || "Falha no login. Verifique as credenciais e o captcha.");
+            const err = new Error(msg || "Falha no login. Verifique as credenciais e o captcha.");
+            err.statusCode = 401;
+            throw err;
         }
 
         // If not on process list, try to navigate to it
@@ -239,11 +262,12 @@ exports.handler = async function (event, context) {
 
     } catch (error) {
         console.error("SEI Processos Error:", error);
+        const statusCode = error.statusCode || 500;
         return {
-            statusCode: 500,
+            statusCode,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
             body: JSON.stringify({
-                error: error.message,
+                error: error.message || 'Erro desconhecido ao buscar processos.',
                 processos: []
             })
         };

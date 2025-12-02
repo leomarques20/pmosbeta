@@ -19,8 +19,16 @@ async function fetchProcessos(usuario, senha, orgao, captcha, cookies, unidade_a
         })
     });
     if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Erro ao buscar processos");
+        let errorMessage = "Erro ao buscar processos";
+        try {
+            const err = await res.json();
+            errorMessage = err.error || err.detail || err.message || errorMessage;
+        } catch (parseError) {
+            console.warn("Não foi possível ler o erro da API SEI:", parseError);
+        }
+        const httpError = new Error(errorMessage);
+        httpError.status = res.status;
+        throw httpError;
     }
     return await res.json();
 }
