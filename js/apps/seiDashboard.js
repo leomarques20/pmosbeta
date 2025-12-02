@@ -10,14 +10,15 @@ async function fetchCaptcha() {
     return await res.json();
 }
 
-async function fetchProcessos(usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus, hidden_fields, login_url) {
-    const res = await fetch(`/.netlify/functions/sei-processos`, {
+async function fetchProcessos(usuario, senha, orgao, captcha) {
+    const res = await fetch(`/.netlify/functions/sei-login-puppeteer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            usuario, senha, orgao, captcha, cookies, unidade_alvo, filtrar_meus, hidden_fields, login_url
+            usuario, senha, orgao, captcha
         })
     });
+
     if (!res.ok) {
         let errorMessage = "Erro ao buscar processos";
         try {
@@ -239,7 +240,7 @@ export function openSeiDashboard() {
         els.syncBtn.disabled = true;
 
         try {
-            const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, null, els.filter.checked, currentHiddenFields, currentLoginUrl);
+            const data = await fetchProcessos(user, pass, orgao, captcha);
 
             els.list.innerHTML = '';
             if (data.processos && data.processos.length > 0) {
