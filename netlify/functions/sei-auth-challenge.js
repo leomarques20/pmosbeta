@@ -1,18 +1,26 @@
 const https = require('https');
 const cheerio = require('cheerio');
+const iconv = require('iconv-lite');
 
 exports.handler = async function (event, context) {
     const url = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI&infra_url=L3NlaS8=';
 
     return new Promise((resolve, reject) => {
         https.get(url, (res) => {
-            let data = '';
+            const chunks = [];
 
             res.on('data', (chunk) => {
-                data += chunk;
+                chunks.push(chunk);
             });
 
             res.on('end', () => {
+                // Decode using correct encoding for SEI (ISO-8859-1/win1252)
+                const buffer = Buffer.concat(chunks);
+                const contentType = res.headers['content-type'] || '';
+                let encoding = 'win1252'; // Default para SEI
+                if (contentType.includes('utf-8')) encoding = 'utf8';
+                const data = iconv.decode(buffer, encoding);
+
                 const $ = cheerio.load(data);
 
                 // Procura pelo captcha na página
