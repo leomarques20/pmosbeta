@@ -278,9 +278,15 @@ export function openSeiDashboard() {
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div>
                     <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
-                    <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">${proc.descricao || 'Sem descrição'}</div>
+                    <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">
+                        ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal;">${proc.tipo}</span><br>` : ''}
+                        ${proc.descricao || 'Sem descrição'}
+                    </div>
                 </div>
-                <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
+                <div style="text-align: right;">
+                    <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
+                    ${proc.data ? `<div style="font-size: 0.8em; color: var(--secondary-text-color); margin-top: 4px;">${proc.data}</div>` : ''}
+                </div>
             </div>
             
             ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}

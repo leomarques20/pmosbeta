@@ -102,33 +102,70 @@ exports.handler = async (event) => {
         let processos = await page.evaluate(() => {
             const links = Array.from(document.querySelectorAll('a.processoVisualizado, a.processoNaoVisualizado'));
             return links.map(link => {
-                // Tenta extrair a descrição do tooltip (onmouseover ou title)
+                // Tenta encontrar a linha da tabela (tr)
+                const row = link.closest('tr');
+                let interessados = '';
+                let atribuido_a = '';
+                let data = '';
+                let unidade = 'Padrão';
+
+                if (row) {
+                    const cells = Array.from(row.querySelectorAll('td'));
+                    // Estrutura típica SEI: [Check, Status, Protocolo, Interessados, Atribuído, ...]
+                    // Mas varia. Vamos tentar pegar texto das células adjacentes.
+
+                    // Pega todo o texto da linha para buscar padrões
+                    const rowText = row.innerText || '';
+
+                    // Tenta achar data (DD/MM/AAAA)
+                    const dateMatch = rowText.match(/(\d{2}\/\d{2}\/\d{4})/);
+                    if (dateMatch) {
+                        data = dateMatch[1];
+                    }
+
+                    // Tenta identificar colunas pela posição relativa ao link
+                    const linkCell = link.closest('td');
+                    if (linkCell) {
+                        const linkIndex = cells.indexOf(linkCell);
+
+                        // Assumindo que a próxima coluna é Interessados
+                        if (cells[linkIndex + 1]) {
+                            interessados = cells[linkIndex + 1].textContent.trim();
+                        }
+                        // E a seguinte é Atribuído a (ou Unidade)
+                        if (cells[linkIndex + 2]) {
+                            atribuido_a = cells[linkIndex + 2].textContent.trim();
+                        }
+                    }
+                } else {
+                    // Fallback para layout sem tabelas (divs)
+                    const container = link.parentElement;
+                    if (container) {
+                        const text = container.textContent;
+                        const protocolo = link.textContent.trim();
+                        const resto = text.replace(protocolo, '').trim();
+                        if (resto.length > 0) interessados = resto;
+                    }
+                }
+
+                // Extração do Tooltip (Título = Resumo/Tipo, Conteúdo = Descrição)
                 let descricao = '';
+                let tipo = ''; // Resumo
                 const onmouseover = link.getAttribute('onmouseover');
                 if (onmouseover) {
-                    // Formato comum: return infraTooltipMostrar('Descrição do Processo', 'Texto da descrição');
-                    const match = onmouseover.match(/'[^']+',\s*'([^']+)'/);
-                    if (match && match[1]) {
-                        descricao = match[1];
+                    // Regex para capturar ('Título', 'Conteúdo')
+                    const match = onmouseover.match(/infraTooltipMostrar\s*\(\s*(?:'|")(.*?)(?:'|")\s*,\s*(?:'|")(.*?)(?:'|")\s*\)/);
+                    if (match) {
+                        tipo = match[1]; // Título do tooltip (ex: "Processo", "Memorando")
+                        descricao = match[2]; // Conteúdo (Especificação)
                     }
                 }
                 if (!descricao) {
-                    descricao = link.getAttribute('title') || '';
+                    const title = link.getAttribute('title') || '';
+                    if (title && title !== link.textContent.trim()) descricao = title;
                 }
 
-                // Tenta encontrar interessados
-                let interessados = '';
-                const container = link.parentElement;
-                if (container) {
-                    const text = container.textContent;
-                    const protocolo = link.textContent.trim();
-                    const resto = text.replace(protocolo, '').trim();
-                    if (resto.length > 0) {
-                        interessados = resto;
-                    }
-                }
-
-                // Padroniza o link para "procedimento_trabalhar" se encontrar o ID
+                // Padroniza o link
                 let finalLink = link.href;
                 const idMatch = finalLink.match(/id_procedimento=(\d+)/);
                 if (idMatch && idMatch[1]) {
@@ -139,9 +176,11 @@ exports.handler = async (event) => {
                     protocolo: link.textContent.trim(),
                     link_sei: finalLink,
                     descricao: descricao,
+                    tipo: tipo,
+                    data: data,
                     interessados: interessados,
-                    atribuido_a: '',
-                    unidade: 'Padrão'
+                    atribuido_a: atribuido_a,
+                    unidade: unidade
                 };
             });
         });
