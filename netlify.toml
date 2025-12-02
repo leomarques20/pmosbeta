@@ -4,7 +4,7 @@
   publish = "."
 
 [functions]
-  node_bundler = "esbuild_zisi"
+  node_bundler = "zisi"
   included_files = []
 
 [build.environment]
