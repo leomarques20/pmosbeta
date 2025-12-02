@@ -61,12 +61,21 @@ exports.handler = async function (event, context) {
                                 }
                             });
 
-                            // Extrai campos ocultos
+                            // Extrai campos ocultos - busca por name específico pois type pode não estar presente
                             const hiddenFields = {};
+
+                            // Busca campos conhecidos do SEI
+                            const hdnAcao = $('input[name="hdnAcao"]').val();
+                            const hdnInfraPrefixoCookie = $('input[name="hdnInfraPrefixoCookie"]').val();
+
+                            if (hdnAcao !== undefined) hiddenFields["hdnAcao"] = hdnAcao;
+                            if (hdnInfraPrefixoCookie !== undefined) hiddenFields["hdnInfraPrefixoCookie"] = hdnInfraPrefixoCookie;
+
+                            // Também tenta pegar todos os hidden como fallback
                             $('input[type="hidden"]').each((i, el) => {
                                 const name = $(el).attr('name');
                                 const value = $(el).attr('value');
-                                if (name) hiddenFields[name] = value || '';
+                                if (name && !hiddenFields[name]) hiddenFields[name] = value || '';
                             });
 
                             // Extrai action do form
