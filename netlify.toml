@@ -1,0 +1,17 @@
+[build]
+  command = "pip install -r backend/requirements.txt && cp -r backend functions/backend"
+  functions = "functions"
+  publish = "."
+
+[functions]
+  external_node_modules = ["python-multipart"] # Just in case
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/backend/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

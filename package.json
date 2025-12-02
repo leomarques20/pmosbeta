@@ -1,0 +1,9 @@
+{
+  "name": "pmos-ai",
+  "private": true,
+  "dependencies": {
+    "@pinecone-database/pinecone": "^1.1.0",
+    "firebase-admin": "^12.0.0",
+    "google-auth-library": "^9.0.0"
+  }
+}

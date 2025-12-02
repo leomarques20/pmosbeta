@@ -1,0 +1,16 @@
+{
+  "name": "PMOS - Public Management OS",
+  "short_name": "PMOS",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "assets/icons/pmos-icons-2.0/png/pmos-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

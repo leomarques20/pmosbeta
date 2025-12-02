@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Public Management OS</title>
+
+    <!-- Fontes e Ícones -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/jsmind@0.4.6/style/jsmind.css" rel="stylesheet" />
+
+    <!-- Favicon / PWA – PMOS 2.0 -->
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/pmos-icons-2.0/png/pmos-logo.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/pmos-icons-2.0/png/pmos-logo.png">
+    <link rel="apple-touch-icon" href="assets/icons/pmos-icons-2.0/png/pmos-logo.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <!-- Estilos CSS -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/responsive.css">
+
+    <!-- Bibliotecas Externas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsmind@0.4.6/js/jsmind.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsmind@0.4.6/js/jsmind.draggable.js"></script>
+</head>
+
+<body>
+
+    <!-- Container de Login -->
+    <div id="loginContainer">
+        <h1>Public Management OS</h1>
+        <p>Acesse sua conta para salvar seus projetos na nuvem.</p>
+        <div class="login-form">
+            <input type="email" id="emailInput" placeholder="E-mail" required>
+            <input type="password" id="passwordInput" placeholder="Senha" required>
+            <button id="loginBtn" class="app-button">Entrar</button>
+            <button id="registerBtn" class="app-button secondary">Criar Conta</button>
+            <button id="googleLoginBtn" class="app-button google">Entrar com Google</button>
+            <span id="loginError" style="color: red; font-size: 0.9em; text-align: center; display: none;"></span>
+            <a href="#" id="forgotPasswordLink" class="login-form-toggle"
+                style="text-align: center; margin-top: 10px;">Esqueceu a senha?</a>
+        </div>
+    </div>
+
+    <!-- Interface Principal do OS -->
+    <div class="desktop" id="desktop"></div>
+
+
+
+    <div class="dock" id="appDock">
+        <div class="dock-item" data-action="open-login" title="Entrar / Conta">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/login.png" alt="Entrar / Conta">
+            <span class="dock-label">Login</span>
+        </div>
+
+        <div class="dock-item" data-action="open-file-system" title="Explorador de Arquivos (Nuvem)">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/filesystem.png"
+                alt="Explorador de Arquivos (Nuvem)">
+            <span class="dock-label">Arquivos</span>
+        </div>
+        <div class="dock-item" data-action="open-gantt-chart" title="Cronograma (Gantt)">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/gantt-chart.png" alt="Cronograma (Gantt)">
+            <span class="dock-label">Gantt</span>
+        </div>
+        <div class="dock-item" data-action="open-project-tasks" title="Tarefas de Projeto (com MapNeural AI)">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/project-tasks.png"
+                alt="Tarefas de Projeto (com MapNeural AI)">
+            <span class="dock-label">Tarefas</span>
+        </div>
+        <div class="dock-item" data-action="open-kanban-board" title="Kanban Board">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/kanban-board.png" alt="Kanban Board">
+            <span class="dock-label">Kanban</span>
+        </div>
+        <div class="dock-item" data-action="open-swot-analysis" title="Matriz SWOT">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/swot-analysis.png" alt="Matriz SWOT">
+            <span class="dock-label">SWOT</span>
+        </div>
+        <div class="dock-item" data-action="open-sipoc-matrix" title="Matriz SIPOC">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/sipoc-matrix.png" alt="Matriz SIPOC">
+            <span class="dock-label">SIPOC</span>
+        </div>
+        <div class="dock-item" data-action="open-okr-tracker" title="Monitor OKR">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/okr-tracker.png" alt="Monitor OKR">
+            <span class="dock-label">OKR</span>
+        </div>
+        <div class="dock-item" data-action="open-ishikawa-diagram" title="Diagrama de Ishikawa">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/ishikawa-diagram.png"
+                alt="Diagrama de Ishikawa">
+            <span class="dock-label">Ishikawa</span>
+        </div>
+        <div class="dock-item" data-action="open-bpmn-modeler" title="Modelador BPMN (Simplificado)">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/bpmn-modeler.png"
+                alt="Modelador BPMN (Simplificado)">
+            <span class="dock-label">BPMN</span>
+        </div>
+        <div class="dock-item" data-action="open-mind-map" title="Mapa Mental">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/mind-map.png" alt="Mapa Mental">
+            <span class="dock-label">Mapa Mental</span>
+        </div>
+        <div class="dock-item" data-action="open-contract-manager" title="Gestão de Contratos">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/contract-manager.png" alt="Gestão de Contratos">
+            <span class="dock-label">Contratos</span>
+        </div>
+        <div class="dock-item" data-action="open-checklist-tool" title="Ferramenta de Checklist">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/checklist-tool.png"
+                alt="Ferramenta de Checklist">
+            <span class="dock-label">Checklist</span>
+        </div>
+        <div class="dock-item" data-action="open-ncr-tool" title="Relatório de Não Conformidade">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/ncr-tool.png"
+                alt="Relatório de Não Conformidade">
+            <span class="dock-label">RNC</span>
+        </div>
+        <div class="dock-item" data-action="open-pdca-tool" title="Ciclo PDCA">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/pdca-tool.png" alt="Ciclo PDCA">
+            <span class="dock-label">PDCA</span>
+        </div>
+        <div class="dock-item" data-action="open-5w2h-tool" title="Ferramenta 5W2H">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/5w2h.png" alt="Ferramenta 5W2H">
+            <span class="dock-label">5W2H</span>
+        </div>
+        <div class="dock-item" data-action="open-sei-dashboard" title="Dashboard SEI">
+            <img class="dock-icon" src="assets/icons/pmos-icons-2.0/png/sei-logo.png" alt="Dashboard SEI"
+                onerror="this.src='https://cdn-icons-png.flaticon.com/512/2991/2991148.png'">
+            <span class="dock-label">SEI</span>
+        </div>
+    </div>
+
+    <div id="dock-trigger-area"></div>
+
+    <div class="taskbar">
+        <div class="taskbar-left-cluster">
+            <div class="taskbar-items" id="taskbarItems"></div>
+        </div>
+        <div class="taskbar-right-cluster">
+            <button class="app-button secondary" id="stageManagerToggle" title="Organizador Visual">🔳</button>
+            <button class="app-button secondary" id="darkModeToggle" title="Modo Escuro">🌙</button>
+            <div class="clock" id="clock">00:00</div>
+            <div id="userProfile">
+                <button id="loginOpenBtn" class="app-button primary" title="Entrar"
+                    style="display:none;">Entrar</button>
+                <span style="font-size: 24px; margin-right: 8px;">👤</span>
+                <span id="userProfileName"></span>
+                <button id="logoutBtn" class="app-button secondary" title="Sair">Sair</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Elementos da UI -->
+    <div id="notification">Mensagem de Notificação</div>
+    <div class="desktop-context-menu" id="desktopContextMenu"></div>
+    <div class="stage-manager-overlay" id="stageManagerOverlay">
+        <div class="stage-sidebar" id="stageManagerSidebar"></div>
+        <div class="stage-main-window-area" id="stageManagerMainArea"></div>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Módulos de Autenticação e Lógica Principal -->
+    <script src="env.js"></script>
+    <script type="module" src="js/auth.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+    <script type="module" src="js/main.js"></script>
+
+    <!-- Bibliotecas Auxiliares -->
+    <script src="js/lib/mapNeural.js"></script>
+    <script src="js/lib/windowSnap.js"></script>
+    <script src="js/lib/touchEnhancements.js"></script>
+    <input type="file" id="wallpaperInput" accept="image/*" style="display: none;">
+</body>
+
+</html>

@@ -1,0 +1,102 @@
+{
+  "palette": {
+    "base_bg": "#0f172a",
+    "accent1": "#38bdf8",
+    "accent2": "#f472b6",
+    "accent3": "#5eead4",
+    "neutral": "#f9fafb",
+    "muted": "#94a3b8"
+  },
+  "icons": {
+    "pmos-logo": {
+      "png": "png/pmos-logo.png",
+      "svg": "svg/pmos-logo.svg",
+      "description": "pmos logo"
+    },
+    "filesystem": {
+      "png": "png/filesystem.png",
+      "svg": "svg/filesystem.svg",
+      "description": "filesystem"
+    },
+    "gantt-chart": {
+      "png": "png/gantt-chart.png",
+      "svg": "svg/gantt-chart.svg",
+      "description": "gantt chart"
+    },
+    "project-tasks": {
+      "png": "png/project-tasks.png",
+      "svg": "svg/project-tasks.svg",
+      "description": "project tasks"
+    },
+    "kanban-board": {
+      "png": "png/kanban-board.png",
+      "svg": "svg/kanban-board.svg",
+      "description": "kanban board"
+    },
+    "swot-analysis": {
+      "png": "png/swot-analysis.png",
+      "svg": "svg/swot-analysis.svg",
+      "description": "swot analysis"
+    },
+    "okr-tracker": {
+      "png": "png/okr-tracker.png",
+      "svg": "svg/okr-tracker.svg",
+      "description": "okr tracker"
+    },
+    "ishikawa-diagram": {
+      "png": "png/ishikawa-diagram.png",
+      "svg": "svg/ishikawa-diagram.svg",
+      "description": "ishikawa diagram"
+    },
+    "bpmn-modeler": {
+      "png": "png/bpmn-modeler.png",
+      "svg": "svg/bpmn-modeler.svg",
+      "description": "bpmn modeler"
+    },
+    "mind-map": {
+      "png": "png/mind-map.png",
+      "svg": "svg/mind-map.svg",
+      "description": "mind map"
+    },
+    "contract-manager": {
+      "png": "png/contract-manager.png",
+      "svg": "svg/contract-manager.svg",
+      "description": "contract manager"
+    },
+    "checklist-tool": {
+      "png": "png/checklist-tool.png",
+      "svg": "svg/checklist-tool.svg",
+      "description": "checklist tool"
+    },
+    "ncr-tool": {
+      "png": "png/ncr-tool.png",
+      "svg": "svg/ncr-tool.svg",
+      "description": "ncr tool"
+    },
+    "pdca-tool": {
+      "png": "png/pdca-tool.png",
+      "svg": "svg/pdca-tool.svg",
+      "description": "pdca tool"
+    },
+    "5w2h": {
+      "png": "png/5w2h.png",
+      "svg": "svg/5w2h.svg",
+      "description": "5w2h"
+    },
+    "sipoc-matrix": {
+      "png": "png/sipoc-matrix.png",
+      "svg": "svg/sipoc-matrix.svg",
+      "description": "sipoc matrix"
+    },
+    "ai-assistant": {
+      "png": "png/ai-assistant.png",
+      "svg": "svg/ai-assistant.svg",
+      "description": "ai assistant"
+    },
+    "login": {
+      "png": "png/login.png",
+      "svg": "svg/login.svg",
+      "description": "login"
+    }
+  }
+}

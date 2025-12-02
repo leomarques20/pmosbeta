@@ -1,0 +1,68 @@
+/* ===================================================================
+   ARQUIVO RESPONSIVE.CSS FINAL
+   - Ajusta tamanhos para tablets e celulares.
+   - Reintroduz o scroll horizontal no dock para telas menores.
+   - Não interfere na lógica de visibilidade (mostrar/esconder).
+   =================================================================== */
+
+/* Ajustes para tablets (iPad e similares) */
+@media (max-width: 1024px) {
+    /* [NOVO] Adiciona o scroll horizontal se os ícones não couberem */
+    .dock {
+        overflow-x: auto;
+        justify-content: flex-start; /* Alinha os ícones à esquerda quando o scroll está ativo */
+    }
+
+    /* Impede que os ícones encolham para caber na tela, forçando o scroll */
+    .dock-item {
+        --dock-item-size: 55px;
+        flex-shrink: 0; 
+    }
+
+    /* Aumenta um pouco os alvos de toque */
+    .taskbar-item, .clock, .app-button {
+        padding: 10px 14px;
+        font-size: 1.1em;
+    }
+}
+
+/* Ajustes para mobile (Celulares) */
+@media (max-width: 768px) {
+    /* Apenas ajusta o tamanho e aparência do dock.
+       A lógica de esconder/mostrar (bottom/opacity) virá do main.css */
+    .dock {
+        width: 95vw;
+        padding: 8px;
+        gap: 10px;
+        /* As regras de overflow e justify-content do breakpoint de 1024px já são herdadas aqui,
+           então não precisamos repeti-las. */
+    }
+    
+    /* Ícones um pouco menores para caber na tela */
+    .dock-item {
+        --dock-item-size: 50px;
+    }
+    
+    /* Aumenta o tamanho dos itens da barra de tarefas para toque */
+    .taskbar-item, .clock, .app-button {
+        padding: 10px;
+        font-size: 1em;
+    }
+    
+    /* Garante que as janelas não fiquem muito grandes na tela pequena */
+    .window {
+        width: 95% !important;
+        left: 2.5% !important;
+        top: 2.5% !important;
+        height: 90% !important; /* Altura definida para não vazar da tela */
+    }
+
+    .window-content, .title-bar {
+        padding: 10px;
+    }
+}
+
+/* Melhorias gerais para touch */
+.window-control, .dock-item, .taskbar-item, .app-button {
+    touch-action: manipulation; /* Otimiza eventos de toque */
+}
