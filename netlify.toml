@@ -1,10 +1,13 @@
 [build]
-  command = "pip install -r backend/requirements.txt && cp -r backend functions/backend"
+  command = "mkdir -p functions/backend && cp backend/main.py functions/backend/__init__.py && cp backend/sei_scraper.py functions/backend/sei_scraper.py && pip install -r backend/requirements.txt -t functions/backend"
   functions = "functions"
   publish = "."
 
 [functions]
-  external_node_modules = ["python-multipart"] # Just in case
+  external_node_modules = ["python-multipart"]
+
+[build.environment]
+  PYTHON_VERSION = "3.9"
 
 [[redirects]]
   from = "/api/*"
