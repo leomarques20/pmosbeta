@@ -61,27 +61,57 @@ exports.handler = async function (event, context) {
     try {
         const { usuario, senha, orgao, captcha, cookies } = JSON.parse(event.body);
 
-        // Monta cookies string
-        const cookieString = Object.entries(cookies || {})
-            .map(([key, val]) => `${key}=${val}`)
-            .join('; ');
-
-        // Dados do formulário de login
-        const formData = new URLSearchParams({
-            txtUsuario: usuario,
-            pwdSenha: senha,
-            selOrgao: orgao || '0',
-            hdnIdSistema: '100000100',
-            hdnIdOrgao: orgao || '0',
-            sbmLogin: 'Acessar'
+        // 1. Acessa a página de login para pegar cookies iniciais e campos ocultos
+        const loginPageResponse = await makeRequest(SEI_LOGIN_URL, {
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
         });
 
+        // Extrai cookies da página de login
+        const initialCookies = {};
+        (loginPageResponse.headers['set-cookie'] || []).forEach(cookie => {
+            const parts = cookie.split(';')[0].split('=');
+            if (parts.length === 2) initialCookies[parts[0]] = parts[1];
+        });
 
-        if (captcha) {
-            formData.append('txtCaptcha', captcha);
+        // Combina com cookies do cliente (priorizando os novos do servidor)
+        const cookiesToUse = { ...cookies, ...initialCookies };
+        const cookieString = Object.entries(cookiesToUse).map(([k, v]) => `${k}=${v}`).join('; ');
+
+        // Extrai campos ocultos do formulário
+        const $login = cheerio.load(loginPageResponse.data);
+        const hiddenFields = {};
+        $login('input[type="hidden"]').each((i, el) => {
+            const name = $login(el).attr('name');
+            const value = $login(el).attr('value');
+            if (name) hiddenFields[name] = value || '';
+        });
+
+        // Monta dados do formulário preservando campos ocultos originais
+        const formData = new URLSearchParams();
+
+        // Adiciona campos ocultos raspados
+        Object.entries(hiddenFields).forEach(([key, value]) => {
+            formData.append(key, value);
+        });
+
+        // Sobrescreve/Adiciona credenciais
+        formData.set('txtUsuario', usuario);
+        formData.set('pwdSenha', senha);
+        formData.set('selOrgao', orgao || '0');
+
+        // Garante que sbmLogin exista (às vezes é input submit, não hidden)
+        if (!formData.has('sbmLogin')) {
+            formData.set('sbmLogin', 'Acessar');
         }
 
-        // Faz login no SIP
+        if (captcha) {
+            formData.set('txtCaptcha', captcha);
+        }
+
+        // 2. Faz o POST de login
         const loginResponse = await makeRequest(SEI_LOGIN_URL, {
             method: 'POST',
             headers: {
@@ -90,9 +120,7 @@ exports.handler = async function (event, context) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Origin': 'https://www.sei.mg.gov.br',
                 'Referer': SEI_LOGIN_URL,
-                'Upgrade-Insecure-Requests': '1',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+                'Upgrade-Insecure-Requests': '1'
             },
             body: formData.toString()
         });
@@ -108,7 +136,7 @@ exports.handler = async function (event, context) {
         });
 
         // Combina cookies antigos e novos
-        const allCookies = { ...cookies, ...newCookies };
+        const allCookies = { ...cookiesToUse, ...newCookies };
         const newCookieString = Object.entries(allCookies)
             .map(([key, val]) => `${key}=${val}`)
             .join('; ');
