@@ -1,123 +1,15 @@
-const https = require('https');
-const http = require('http');
+const axios = require('axios');
+const { CookieJar } = require('tough-cookie');
 const cheerio = require('cheerio');
-const { URLSearchParams, URL } = require('url');
-
-const SEI_BASE_URL = 'https://www.sei.mg.gov.br/sei';
-const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
-
-function parseCookies(cookieHeader) {
-    const cookies = {};
-    if (!cookieHeader) return cookies;
-
-    // Se for array (set-cookie), junta
-    const list = Array.isArray(cookieHeader) ? cookieHeader : [cookieHeader];
-
-    list.forEach(c => {
-        // Pode vir múltiplos cookies numa string separados por vírgula ou ponto-e-vírgula
-        // Mas set-cookie geralmente é um por linha/item do array
-        const parts = c.split(';')[0].split('=');
-        if (parts.length >= 2) {
-            const key = parts[0].trim();
-            const val = parts.slice(1).join('=').trim();
-            cookies[key] = val;
-        }
-    });
-    return cookies;
-}
-
-function stringifyCookies(cookies) {
-    return Object.entries(cookies)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('; ');
-}
-
 const iconv = require('iconv-lite');
 
-function makeRequest(url, options = {}, redirectChain = [], cookieJar = {}) {
-    return new Promise((resolve, reject) => {
-        const protocol = url.startsWith('https') ? https : http;
-        redirectChain.push(url);
-
-        // Merge cookies from options into cookieJar if provided
-        if (options.headers && options.headers['Cookie']) {
-            const initialCookies = parseCookies(options.headers['Cookie']);
-            Object.assign(cookieJar, initialCookies);
-        }
-
-        const req = protocol.request(url, options, (res) => {
-            // Capture cookies from this response
-            if (res.headers['set-cookie']) {
-                const newCookies = parseCookies(res.headers['set-cookie']);
-                Object.assign(cookieJar, newCookies);
-            }
-
-            // Seguir redirecionamento
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                const redirectUrl = new URL(res.headers.location, url).toString();
-
-                // Prepara novas opções
-                const newOptions = { ...options, method: 'GET' };
-                delete newOptions.body;
-
-                // Remove headers de POST
-                if (newOptions.headers) {
-                    delete newOptions.headers['Content-Type'];
-                    delete newOptions.headers['Content-Length'];
-                    delete newOptions.headers['Origin'];
-                    newOptions.headers['Referer'] = url;
-                    // Update Cookie header with accumulated cookies
-                    newOptions.headers['Cookie'] = stringifyCookies(cookieJar);
-                }
-
-                makeRequest(redirectUrl, newOptions, redirectChain, cookieJar).then(resolve).catch(reject);
-                return;
-            }
-
-            const chunks = [];
-
-            res.on('data', (chunk) => {
-                chunks.push(chunk);
-            });
-
-            res.on('end', () => {
-                const buffer = Buffer.concat(chunks);
-                // Tenta detectar encoding ou usa latin1 (win1252 é superset seguro de iso-8859-1)
-                const contentType = res.headers['content-type'] || '';
-                let encoding = 'win1252'; // Default para SEI
-                if (contentType.includes('utf-8')) encoding = 'utf8';
-
-                const data = iconv.decode(buffer, encoding);
-
-                resolve({
-                    data,
-                    headers: res.headers,
-                    statusCode: res.statusCode,
-                    finalUrl: url,
-                    redirectChain,
-                    cookieJar // Return the accumulated cookies
-                });
-            });
-        });
-
-        req.on('error', reject);
-
-        if (options.body) {
-            req.write(options.body);
-        }
-
-        req.end();
-    });
-}
-
-// Helper para URL-encode em ISO-8859-1
+// Helper to encode params for ISO-8859-1
 function urlEncodeISO(str) {
     if (!str) return '';
     const buffer = iconv.encode(str, 'win1252');
     let res = '';
     for (let i = 0; i < buffer.length; i++) {
         const byte = buffer[i];
-        // Caracteres seguros não precisam de escape
         if (
             (byte >= 0x30 && byte <= 0x39) || // 0-9
             (byte >= 0x41 && byte <= 0x5a) || // A-Z
@@ -134,135 +26,175 @@ function urlEncodeISO(str) {
     return res;
 }
 
-exports.handler = async function (event, context) {
-    if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            body: JSON.stringify({ error: 'Method not allowed' })
-        };
+// Helper to manage cookies with Axios manually
+async function requestWithCookies(client, config, jar, url) {
+    // Add cookies to request
+    const cookies = await jar.getCookies(url);
+    const cookieHeader = cookies.map(c => c.cookieString()).join('; ');
+
+    const newConfig = { ...config };
+    if (cookieHeader) {
+        newConfig.headers = { ...newConfig.headers, 'Cookie': cookieHeader };
     }
 
+    const response = await client.request(newConfig);
+
+    // Store cookies from response
+    if (response.headers['set-cookie']) {
+        const setCookies = response.headers['set-cookie'];
+        for (const cookieStr of setCookies) {
+            await jar.setCookie(cookieStr, url);
+        }
+    }
+
+    return response;
+}
+
+exports.handler = async function (event, context) {
+    if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+    }
+
+    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = JSON.parse(event.body);
+    const SEI_BASE_URL = 'https://www.sei.mg.gov.br';
+    const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
+
+    // Setup Cookie Jar
+    const jar = new CookieJar();
+
+    // Restore cookies from frontend
+    if (cookies) {
+        for (const [key, value] of Object.entries(cookies)) {
+            try {
+                // We need to set the cookie for the correct domain.
+                // Assuming standard SEI domain.
+                await jar.setCookie(`${key}=${value}; Domain = www.sei.mg.gov.br; Path =/`, SEI_LOGIN_URL);
+            } catch (e) {
+                console.warn("Error setting cookie:", key, e);
+            }
+        }
+    }
+
+    const client = axios.create({
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Origin': 'https://www.sei.mg.gov.br',
+            'Referer': SEI_LOGIN_URL
+        },
+        responseType: 'arraybuffer',
+        validateStatus: () => true, // Handle all status codes manually
+        maxRedirects: 0 // Handle redirects manually to capture cookies
+    });
+
     try {
-        const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = JSON.parse(event.body);
-
-        // Combina com cookies do cliente
-        const cookiesToUse = { ...cookies };
-        const cookieString = stringifyCookies(cookiesToUse);
-
-        // Usa os campos ocultos fornecidos, ou valores padrão conhecidos do SEI
-        // Os campos hdnAcao e hdnInfraPrefixoCookie são adicionados por JavaScript no cliente
-        // então podem não vir no hidden_fields
+        // Prepare Form Data
         const hiddenFields = hidden_fields || {};
 
-        // Adiciona valores padrão se não vieram
-        if (!hiddenFields['hdnAcao']) {
-            hiddenFields['hdnAcao'] = '1';  // Valor padrão observado
-        }
-        if (!hiddenFields['hdnInfraPrefixoCookie']) {
-            hiddenFields['hdnInfraPrefixoCookie'] = 'Sistema_Eletrônico_de_Informações';  // Valor padrão observado
-        }
+        // Defaults
+        if (!hiddenFields['hdnAcao']) hiddenFields['hdnAcao'] = '1';
+        if (!hiddenFields['hdnInfraPrefixoCookie']) hiddenFields['hdnInfraPrefixoCookie'] = 'Sistema_Eletrônico_de_Informações';
 
-        const loginUrlToUse = login_url || SEI_LOGIN_URL;
-
-        // Monta dados do formulário manualmente com encoding correto
         const formParams = [];
-
-        // Adiciona campos ocultos raspados
         Object.entries(hiddenFields).forEach(([key, value]) => {
-            formParams.push(`${urlEncodeISO(key)}=${urlEncodeISO(value)}`);
+            // Filter out fields we will explicitly set
+            if (!['txtUsuario', 'pwdSenha', 'selOrgao', 'sbmLogin', 'txtCaptcha'].includes(key)) {
+                formParams.push(`${urlEncodeISO(key)}=${urlEncodeISO(value)}`);
+            }
         });
 
-        // Sobrescreve/Adiciona credenciais
-        // Remove duplicatas se já existirem nos hidden fields
-        const keysToOverride = ['txtUsuario', 'pwdSenha', 'selOrgao', 'sbmLogin', 'txtCaptcha'];
-        const filteredParams = formParams.filter(p => !keysToOverride.some(k => p.startsWith(k + '=')));
-
-        filteredParams.push(`txtUsuario=${urlEncodeISO(usuario)}`);
-        filteredParams.push(`pwdSenha=${urlEncodeISO(senha)}`);
-        filteredParams.push(`selOrgao=${urlEncodeISO(orgao || '0')}`); // Mapeamento de órgão deve ser feito no frontend ou aqui se tivermos a lista
-
-        // Garante que sbmLogin exista
-        if (!hiddenFields['sbmLogin']) {
-            filteredParams.push(`sbmLogin=${urlEncodeISO('Acessar')}`);
-        }
-
+        formParams.push(`txtUsuario=${urlEncodeISO(usuario)}`);
+        formParams.push(`pwdSenha=${urlEncodeISO(senha)}`);
+        formParams.push(`selOrgao=${urlEncodeISO(orgao || '0')}`);
+        formParams.push(`sbmLogin=${urlEncodeISO('Acessar')}`);
         if (captcha) {
-            filteredParams.push(`txtCaptcha=${urlEncodeISO(captcha)}`);
+            formParams.push(`txtCaptcha=${urlEncodeISO(captcha)}`);
         }
 
-        const bodyString = filteredParams.join('&');
+        const bodyString = formParams.join('&');
+        const loginTarget = login_url || SEI_LOGIN_URL;
 
-        // 2. Faz o POST de login
-        const loginResponse = await makeRequest(loginUrlToUse, {
+        // 1. Perform Login
+        let response = await requestWithCookies(client, {
+            url: loginTarget,
             method: 'POST',
+            data: bodyString,
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Cookie': cookieString,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Origin': 'https://www.sei.mg.gov.br',
-                'Referer': SEI_LOGIN_URL,
-                'Upgrade-Insecure-Requests': '1'
-            },
-            body: bodyString
-        });
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        }, jar, loginTarget);
 
-        // Usa os cookies acumulados durante o login (incluindo redirects)
-        const allCookies = loginResponse.cookieJar || {};
-        const newCookieString = stringifyCookies(allCookies);
+        // Handle Redirects (Manual loop)
+        let currentUrl = loginTarget;
+        let redirectCount = 0;
+        const maxRedirects = 5;
 
-        let finalResponse = loginResponse;
-
-        // Se o loginResponse não tiver tabela de processos, tenta acessar a URL final ou a padrão
-        if (!loginResponse.data.includes('infraTable')) {
-            let targetUrl = loginResponse.finalUrl;
-
-            // Se a URL final for a de login (falha ou não redirecionou), força a de controle
-            if (targetUrl.includes('login.php')) {
-                targetUrl = `${SEI_BASE_URL}/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`;
+        while (response.status >= 300 && response.status < 400 && response.headers.location && redirectCount < maxRedirects) {
+            redirectCount++;
+            let redirectUrl = response.headers.location;
+            if (!redirectUrl.startsWith('http')) {
+                const baseUrl = new URL(currentUrl).origin;
+                redirectUrl = new URL(redirectUrl, baseUrl).toString();
             }
 
-            finalResponse = await makeRequest(targetUrl, {
-                method: 'GET',
-                headers: {
-                    'Cookie': newCookieString,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Referer': SEI_LOGIN_URL,
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
-                }
-            });
+            console.log(`Redirecting to: ${redirectUrl}`);
+            currentUrl = redirectUrl;
+
+            response = await requestWithCookies(client, {
+                url: redirectUrl,
+                method: 'GET'
+            }, jar, redirectUrl);
         }
 
-        // Parse HTML para extrair processos
-        const $ = cheerio.load(finalResponse.data);
+        // Check if login was successful
+        // Decode response
+        let contentType = response.headers['content-type'] || '';
+        let encoding = 'win1252';
+        if (contentType.includes('utf-8')) encoding = 'utf8';
+        let html = iconv.decode(response.data, encoding);
+
+        // Check for login error
+        if (html.includes('txtUsuario') && html.includes('pwdSenha')) {
+            // Still on login page
+            const $ = cheerio.load(html);
+            const msg = $('#divInfraMensagens').text().trim();
+            throw new Error(msg || "Falha no login. Verifique as credenciais e o captcha.");
+        }
+
+        // If not on process list, try to navigate to it
+        if (!html.includes('infraTable') && !html.includes('processoVisualizado')) {
+            // Force navigation to control panel
+            const controlUrl = `${SEI_BASE_URL}/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`;
+            const controlResponse = await requestWithCookies(client, { url: controlUrl, method: 'GET' }, jar, controlUrl);
+
+            contentType = controlResponse.headers['content-type'] || '';
+            encoding = 'win1252';
+            if (contentType.includes('utf-8')) encoding = 'utf8';
+            html = iconv.decode(controlResponse.data, encoding);
+            currentUrl = controlUrl;
+        }
+
+        // 2. Parse Processes
+        const $ = cheerio.load(html);
         const processos = [];
 
-        // Debug: verifica se logou com sucesso
-        const hasLoginForm = finalResponse.data.includes('txtUsuario') || finalResponse.data.includes('pwdSenha');
-        const hasErrorMessage = $('.infraMensagemAlerta, .infraMensagemErro').text();
-
-        // A interface moderna do SEI usa divs, não tabelas
-        // Procura por links de processos com as classes específicas
+        // Modern SEI (Div based)
         $('a.processoVisualizado, a.processoNaoVisualizado').each((i, link) => {
             const $link = $(link);
             const protocolo = $link.text().trim();
             const href = $link.attr('href');
 
             if (protocolo && href) {
-                // Tenta extrair informações adicionais dos elementos próximos
-                const $parent = $link.parent();
-
                 processos.push({
                     protocolo,
                     link_sei: href.startsWith('http') ? href : `${SEI_BASE_URL}/${href}`,
-                    interessados: '', // Pode precisar de scraping adicional
+                    interessados: '', // Hard to get in div layout without more context
                     atribuido_a: '',
                     unidade: 'Padrão'
                 });
             }
         });
 
-        // Fallback: tenta método antigo com tabelas (caso versão antiga do SEI)
+        // Legacy SEI (Table based) - Fallback
         if (processos.length === 0) {
             $('table.infraTable tr').each((i, row) => {
                 const $row = $(row);
@@ -299,30 +231,17 @@ exports.handler = async function (event, context) {
                 processos,
                 total: processos.length,
                 debug: {
-                    loginFailed: hasLoginForm,
-                    errorMessage: hasErrorMessage,
-                    divProcessosFound: $('#divTabelaProcesso').length,
-                    processLinksFound: $('a.processoVisualizado, a.processoNaoVisualizado').length,
-                    tablesFound: $('table.infraTable').length,
-                    rowsFound: $('table.infraTable tr').length,
-                    linksFound: $('a.infraLinkProcesso').length,
-                    htmlSnippet: finalResponse.data ? finalResponse.data.substring(0, 500) : "EMPTY RESPONSE",
-                    statusCode: finalResponse.statusCode,
-                    finalUrl: finalResponse.finalUrl,
-                    redirectChain: finalResponse.redirectChain,
-                    hiddenFieldsFound: hiddenFields,
-                    loginUrlUsed: loginUrlToUse
+                    finalUrl: currentUrl,
+                    processosFound: processos.length
                 }
             })
         };
+
     } catch (error) {
-        console.error('Erro:', error);
+        console.error("SEI Processos Error:", error);
         return {
             statusCode: 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
             body: JSON.stringify({
                 error: error.message,
                 processos: []
