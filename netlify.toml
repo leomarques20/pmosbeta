@@ -1,5 +1,5 @@
 [build]
-  command = "mkdir -p functions/backend && cp backend/main.py functions/backend/__init__.py && cp backend/sei_scraper.py functions/backend/sei_scraper.py && pip install -r backend/requirements.txt -t functions/backend"
+  command = "mkdir -p functions/backend && cp backend/main.py functions/backend/main.py && cp backend/sei_scraper.py functions/backend/sei_scraper.py && cp backend/__init__.py functions/backend/__init__.py && pip install -r backend/requirements.txt -t functions"
   functions = "functions"
   publish = "."
 
@@ -11,7 +11,7 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/backend/api/:splat"
+  to = "/.netlify/functions/api"
   status = 200
 
 [[redirects]]
