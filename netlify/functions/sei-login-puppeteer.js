@@ -128,9 +128,16 @@ exports.handler = async (event) => {
                     }
                 }
 
+                // Padroniza o link para "procedimento_trabalhar" se encontrar o ID
+                let finalLink = link.href;
+                const idMatch = finalLink.match(/id_procedimento=(\d+)/);
+                if (idMatch && idMatch[1]) {
+                    finalLink = `https://www.sei.mg.gov.br/sei/controlador.php?acao=procedimento_trabalhar&id_procedimento=${idMatch[1]}`;
+                }
+
                 return {
                     protocolo: link.textContent.trim(),
-                    link_sei: link.href,
+                    link_sei: finalLink,
                     descricao: descricao,
                     interessados: interessados,
                     atribuido_a: '',
