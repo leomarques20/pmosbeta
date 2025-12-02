@@ -232,30 +232,53 @@ exports.handler = async function (event, context) {
         const hasLoginForm = finalResponse.data.includes('txtUsuario') || finalResponse.data.includes('pwdSenha');
         const hasErrorMessage = $('.infraMensagemAlerta, .infraMensagemErro').text();
 
-        // Procura tabelas de processos
-        $('table.infraTable tr').each((i, row) => {
-            const $row = $(row);
-            const $link = $row.find('a.infraLinkProcesso');
+        // A interface moderna do SEI usa divs, não tabelas
+        // Procura por links de processos com as classes específicas
+        $('a.processoVisualizado, a.processoNaoVisualizado').each((i, link) => {
+            const $link = $(link);
+            const protocolo = $link.text().trim();
+            const href = $link.attr('href');
 
-            if ($link.length > 0) {
-                const protocolo = $link.text().trim();
-                const href = $link.attr('href');
-                const $cols = $row.find('td');
+            if (protocolo && href) {
+                // Tenta extrair informações adicionais dos elementos próximos
+                const $parent = $link.parent();
 
-                if ($cols.length >= 3) {
-                    const interessados = $cols.eq(2).text().trim();
-                    const atribuido = $cols.length > 4 ? $cols.eq($cols.length - 2).text().trim() : '';
-
-                    processos.push({
-                        protocolo,
-                        link_sei: href ? `${SEI_BASE_URL}/${href}` : '',
-                        interessados,
-                        atribuido_a: atribuido,
-                        unidade: 'Padrão'
-                    });
-                }
+                processos.push({
+                    protocolo,
+                    link_sei: href.startsWith('http') ? href : `${SEI_BASE_URL}/${href}`,
+                    interessados: '', // Pode precisar de scraping adicional
+                    atribuido_a: '',
+                    unidade: 'Padrão'
+                });
             }
         });
+
+        // Fallback: tenta método antigo com tabelas (caso versão antiga do SEI)
+        if (processos.length === 0) {
+            $('table.infraTable tr').each((i, row) => {
+                const $row = $(row);
+                const $link = $row.find('a.infraLinkProcesso');
+
+                if ($link.length > 0) {
+                    const protocolo = $link.text().trim();
+                    const href = $link.attr('href');
+                    const $cols = $row.find('td');
+
+                    if ($cols.length >= 3) {
+                        const interessados = $cols.eq(2).text().trim();
+                        const atribuido = $cols.length > 4 ? $cols.eq($cols.length - 2).text().trim() : '';
+
+                        processos.push({
+                            protocolo,
+                            link_sei: href ? `${SEI_BASE_URL}/${href}` : '',
+                            interessados,
+                            atribuido_a: atribuido,
+                            unidade: 'Padrão'
+                        });
+                    }
+                }
+            });
+        }
 
         return {
             statusCode: 200,
@@ -269,6 +292,8 @@ exports.handler = async function (event, context) {
                 debug: {
                     loginFailed: hasLoginForm,
                     errorMessage: hasErrorMessage,
+                    divProcessosFound: $('#divTabelaProcesso').length,
+                    processLinksFound: $('a.processoVisualizado, a.processoNaoVisualizado').length,
                     tablesFound: $('table.infraTable').length,
                     rowsFound: $('table.infraTable tr').length,
                     linksFound: $('a.infraLinkProcesso').length,
