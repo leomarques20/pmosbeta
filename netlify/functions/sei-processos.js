@@ -146,7 +146,8 @@ exports.handler = async function (event, context) {
                     errorMessage: hasErrorMessage,
                     tablesFound: $('table.infraTable').length,
                     rowsFound: $('table.infraTable tr').length,
-                    linksFound: $('a.infraLinkProcesso').length
+                    linksFound: $('a.infraLinkProcesso').length,
+                    htmlSnippet: processosResponse.data.substring(0, 500) // Primeiros 500 caracteres
                 }
             })
         };
