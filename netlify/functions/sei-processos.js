@@ -77,6 +77,10 @@ exports.handler = async function (event, context) {
         const $ = cheerio.load(loginResponse.data);
         const processos = [];
 
+        // Debug: verifica se logou com sucesso
+        const hasLoginForm = loginResponse.data.includes('txtUsuario') || loginResponse.data.includes('pwdSenha');
+        const hasErrorMessage = $('.infraMensagemAlerta, .infraMensagemErro').text();
+
         // Procura tabelas de processos
         $('table.infraTable tr').each((i, row) => {
             const $row = $(row);
@@ -110,7 +114,14 @@ exports.handler = async function (event, context) {
             },
             body: JSON.stringify({
                 processos,
-                total: processos.length
+                total: processos.length,
+                debug: {
+                    loginFailed: hasLoginForm,
+                    errorMessage: hasErrorMessage,
+                    tablesFound: $('table.infraTable').length,
+                    rowsFound: $('table.infraTable tr').length,
+                    linksFound: $('a.infraLinkProcesso').length
+                }
             })
         };
 
