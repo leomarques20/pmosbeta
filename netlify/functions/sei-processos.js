@@ -34,12 +34,24 @@ function stringifyCookies(cookies) {
 
 const iconv = require('iconv-lite');
 
-function makeRequest(url, options = {}, redirectChain = []) {
+function makeRequest(url, options = {}, redirectChain = [], cookieJar = {}) {
     return new Promise((resolve, reject) => {
         const protocol = url.startsWith('https') ? https : http;
         redirectChain.push(url);
 
+        // Merge cookies from options into cookieJar if provided
+        if (options.headers && options.headers['Cookie']) {
+            const initialCookies = parseCookies(options.headers['Cookie']);
+            Object.assign(cookieJar, initialCookies);
+        }
+
         const req = protocol.request(url, options, (res) => {
+            // Capture cookies from this response
+            if (res.headers['set-cookie']) {
+                const newCookies = parseCookies(res.headers['set-cookie']);
+                Object.assign(cookieJar, newCookies);
+            }
+
             // Seguir redirecionamento
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 const redirectUrl = new URL(res.headers.location, url).toString();
@@ -53,19 +65,12 @@ function makeRequest(url, options = {}, redirectChain = []) {
                     delete newOptions.headers['Content-Type'];
                     delete newOptions.headers['Content-Length'];
                     delete newOptions.headers['Origin'];
-                    // Referer deve ser a URL anterior
                     newOptions.headers['Referer'] = url;
+                    // Update Cookie header with accumulated cookies
+                    newOptions.headers['Cookie'] = stringifyCookies(cookieJar);
                 }
 
-                // Atualiza cookies
-                if (res.headers['set-cookie']) {
-                    const currentCookies = parseCookies(newOptions.headers['Cookie']);
-                    const newCookies = parseCookies(res.headers['set-cookie']);
-                    const mergedCookies = { ...currentCookies, ...newCookies };
-                    newOptions.headers['Cookie'] = stringifyCookies(mergedCookies);
-                }
-
-                makeRequest(redirectUrl, newOptions, redirectChain).then(resolve).catch(reject);
+                makeRequest(redirectUrl, newOptions, redirectChain, cookieJar).then(resolve).catch(reject);
                 return;
             }
 
@@ -89,7 +94,8 @@ function makeRequest(url, options = {}, redirectChain = []) {
                     headers: res.headers,
                     statusCode: res.statusCode,
                     finalUrl: url,
-                    redirectChain
+                    redirectChain,
+                    cookieJar // Return the accumulated cookies
                 });
             });
         });
@@ -205,7 +211,6 @@ exports.handler = async function (event, context) {
         if (captcha) {
             filteredParams.push(`txtCaptcha=${urlEncodeISO(captcha)}`);
         }
-
         const bodyString = filteredParams.join('&');
 
         // 2. Faz o POST de login
@@ -222,21 +227,9 @@ exports.handler = async function (event, context) {
             body: bodyString
         });
 
-        // Extrai cookies do login
-        const newCookies = {};
-        const setCookieHeaders = loginResponse.headers['set-cookie'] || [];
-        setCookieHeaders.forEach(cookie => {
-            const parts = cookie.split(';')[0].split('=');
-            if (parts.length === 2) {
-                newCookies[parts[0]] = parts[1];
-            }
-        });
-
-        // Combina cookies antigos e novos
-        const allCookies = { ...cookiesToUse, ...newCookies };
-        const newCookieString = Object.entries(allCookies)
-            .map(([key, val]) => `${key}=${val}`)
-            .join('; ');
+        // Usa os cookies acumulados durante o login (incluindo redirects)
+        const allCookies = loginResponse.cookieJar || {};
+        const newCookieString = stringifyCookies(allCookies);
 
         let finalResponse = loginResponse;
 
