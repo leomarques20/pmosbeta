@@ -184,7 +184,34 @@ exports.handler = async function (event, context) {
                 formAction = `https://www.sei.mg.gov.br/sip/${formAction}`;
             }
         }
+
+        // Se a action não tiver parâmetros, mas a URL original tiver, tenta preservar
+        if (formAction && !formAction.includes('?')) {
+            const originalQuery = SEI_LOGIN_URL.split('?')[1];
+            if (originalQuery) {
+                formAction += `?${originalQuery}`;
+            }
+        }
+
         const loginUrlToUse = formAction || SEI_LOGIN_URL;
+
+        // Extrai opções do órgão (selOrgao)
+        const orgaoOptions = {};
+        $login('select[name="selOrgao"] option').each((i, el) => {
+            const val = $login(el).attr('value');
+            const text = $login(el).text().trim();
+            if (val) orgaoOptions[val] = text;
+        });
+
+        // Tenta mapear o órgão fornecido
+        let orgaoToUse = orgao || '0';
+        // Se o valor enviado não estiver nas chaves, tenta achar pelo texto
+        if (orgao && !orgaoOptions[orgao]) {
+            const foundEntry = Object.entries(orgaoOptions).find(([k, v]) => v.includes(orgao));
+            if (foundEntry) {
+                orgaoToUse = foundEntry[0];
+            }
+        }
 
         // Monta dados do formulário manualmente com encoding correto
         const formParams = [];
@@ -201,7 +228,7 @@ exports.handler = async function (event, context) {
 
         filteredParams.push(`txtUsuario=${urlEncodeISO(usuario)}`);
         filteredParams.push(`pwdSenha=${urlEncodeISO(senha)}`);
-        filteredParams.push(`selOrgao=${urlEncodeISO(orgao || '0')}`);
+        filteredParams.push(`selOrgao=${urlEncodeISO(orgaoToUse)}`);
 
         // Garante que sbmLogin exista
         if (!hiddenFields['sbmLogin']) {
@@ -307,7 +334,9 @@ exports.handler = async function (event, context) {
                     finalUrl: finalResponse.finalUrl,
                     redirectChain: finalResponse.redirectChain,
                     hiddenFieldsFound: hiddenFields,
-                    loginUrlUsed: loginUrlToUse
+                    loginUrlUsed: loginUrlToUse,
+                    orgaoOptionsFound: orgaoOptions,
+                    orgaoUsed: orgaoToUse
                 }
             })
         };
