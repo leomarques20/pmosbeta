@@ -91,7 +91,7 @@ exports.handler = async function (event, context) {
             .join('; ');
 
         // Agora acessa a página de controle de processos no SEI
-        const processosResponse = await makeRequest(`${SEI_BASE_URL}/controlador.php?acao=procedimento_controle`, {
+        const processosResponse = await makeRequest(`${SEI_BASE_URL}/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`, {
             method: 'GET',
             headers: {
                 'Cookie': newCookieString,
