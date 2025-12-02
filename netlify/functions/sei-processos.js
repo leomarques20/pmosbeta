@@ -77,19 +77,20 @@ exports.handler = async function (event, context) {
     }
 
     const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = payload;
-    const SEI_BASE_URL = 'https://www.sei.mg.gov.br';
     const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
+    const loginTarget = login_url || SEI_LOGIN_URL;
+    const loginUrlObj = new URL(loginTarget);
+    const SEI_BASE_URL = loginUrlObj.origin;
 
     // Setup Cookie Jar
-    const jar = new CookieJar();
+    const jar = new CookieJar(undefined, { rejectPublicSuffixes: false });
 
     // Restore cookies from frontend
     if (cookies) {
         for (const [key, value] of Object.entries(cookies)) {
             try {
-                // We need to set the cookie for the correct domain.
-                // Assuming standard SEI domain.
-                await jar.setCookie(`${key}=${value}; Domain=www.sei.mg.gov.br; Path=/`, SEI_LOGIN_URL);
+                // Map cookies back to the login host to preserve session.
+                await jar.setCookie(`${key}=${value}; Domain=${loginUrlObj.hostname}; Path=/`, loginTarget);
             } catch (e) {
                 console.warn("Error setting cookie:", key, e);
             }
@@ -99,8 +100,8 @@ exports.handler = async function (event, context) {
     const client = axios.create({
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': 'https://www.sei.mg.gov.br',
-            'Referer': SEI_LOGIN_URL
+            'Origin': SEI_BASE_URL,
+            'Referer': loginTarget
         },
         responseType: 'arraybuffer',
         validateStatus: () => true, // Handle all status codes manually
@@ -132,7 +133,6 @@ exports.handler = async function (event, context) {
         }
 
         const bodyString = formParams.join('&');
-        const loginTarget = login_url || SEI_LOGIN_URL;
 
         // 1. Perform Login
         let response = await requestWithCookies(client, {
