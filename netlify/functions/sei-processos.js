@@ -58,12 +58,13 @@ exports.handler = async function (event, context) {
             sbmLogin: 'Acessar'
         });
 
+
         if (captcha) {
             formData.append('txtCaptcha', captcha);
         }
 
-        // Faz login
-        const loginResponse = await makeRequest(`${SEI_BASE_URL}/controlador.php?acao=procedimento_controle`, {
+        // Faz login no SIP
+        const loginResponse = await makeRequest(SEI_LOGIN_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -73,12 +74,37 @@ exports.handler = async function (event, context) {
             body: formData.toString()
         });
 
+        // Extrai cookies do login
+        const newCookies = {};
+        const setCookieHeaders = loginResponse.headers['set-cookie'] || [];
+        setCookieHeaders.forEach(cookie => {
+            const parts = cookie.split(';')[0].split('=');
+            if (parts.length === 2) {
+                newCookies[parts[0]] = parts[1];
+            }
+        });
+
+        // Combina cookies antigos e novos
+        const allCookies = { ...cookies, ...newCookies };
+        const newCookieString = Object.entries(allCookies)
+            .map(([key, val]) => `${key}=${val}`)
+            .join('; ');
+
+        // Agora acessa a página de controle de processos no SEI
+        const processosResponse = await makeRequest(`${SEI_BASE_URL}/controlador.php?acao=procedimento_controle`, {
+            method: 'GET',
+            headers: {
+                'Cookie': newCookieString,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
         // Parse HTML para extrair processos
-        const $ = cheerio.load(loginResponse.data);
+        const $ = cheerio.load(processosResponse.data);
         const processos = [];
 
         // Debug: verifica se logou com sucesso
-        const hasLoginForm = loginResponse.data.includes('txtUsuario') || loginResponse.data.includes('pwdSenha');
+        const hasLoginForm = processosResponse.data.includes('txtUsuario') || processosResponse.data.includes('pwdSenha');
         const hasErrorMessage = $('.infraMensagemAlerta, .infraMensagemErro').text();
 
         // Procura tabelas de processos
