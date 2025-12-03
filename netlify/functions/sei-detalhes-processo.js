@@ -93,12 +93,14 @@ exports.handler = async function (event, context) {
     });
 
     try {
+        console.log(`[DEBUG] Fetching details for: ${link_sei}`);
         // 1. Check if session is valid by accessing the link directly
         let response = await requestWithCookies(client, { url: link_sei, method: 'GET' }, jar, link_sei);
+        console.log(`[DEBUG] Initial response status: ${response.status}`);
 
         // If redirected to login, perform login
         if (response.status >= 300 && response.headers.location && response.headers.location.includes('login.php')) {
-            console.log("Session expired, logging in...");
+            console.log("[DEBUG] Session expired, logging in...");
             // Perform Login (Simplified version, assuming captcha not needed for re-auth if session just expired, or we fail)
             // Ideally we should reuse the full login flow, but for brevity let's assume valid cookies or fail.
             // If we need to login, we need the full params.
@@ -132,22 +134,27 @@ exports.handler = async function (event, context) {
                     redirectUrl = new URL(redirectUrl, new URL(currentUrl).origin).toString();
                 }
                 currentUrl = redirectUrl;
+                console.log(`[DEBUG] Redirecting to: ${redirectUrl}`);
                 response = await requestWithCookies(client, { url: redirectUrl, method: 'GET' }, jar, redirectUrl);
             }
 
             // Retry accessing the process link
+            console.log(`[DEBUG] Retrying process link: ${link_sei}`);
             response = await requestWithCookies(client, { url: link_sei, method: 'GET' }, jar, link_sei);
         }
 
         let html = iconv.decode(response.data, 'iso-8859-1'); // SEI usually uses this
+        console.log(`[DEBUG] Page HTML length: ${html.length}`);
         let $ = cheerio.load(html);
 
         // 2. Extract Document Tree (iframe 'ifrArvore')
         const treeIframeSrc = $('#ifrArvore').attr('src');
+        console.log(`[DEBUG] Tree Iframe Src: ${treeIframeSrc}`);
         let treeData = [];
 
         if (treeIframeSrc) {
             const treeUrl = treeIframeSrc.startsWith('http') ? treeIframeSrc : `${SEI_BASE_URL}/${treeIframeSrc}`;
+            console.log(`[DEBUG] Fetching Tree URL: ${treeUrl}`);
             const treeResp = await requestWithCookies(client, { url: treeUrl, method: 'GET' }, jar, treeUrl);
             const treeHtml = iconv.decode(treeResp.data, 'iso-8859-1');
             const $tree = cheerio.load(treeHtml);
@@ -167,6 +174,9 @@ exports.handler = async function (event, context) {
                     });
                 }
             });
+            console.log(`[DEBUG] Tree items found: ${treeData.length}`);
+        } else {
+            console.log("[DEBUG] iframe 'ifrArvore' not found.");
         }
 
         // 3. Extract History (iframe 'ifrVisualizacao' -> 'Consultar Andamentos')
@@ -179,6 +189,7 @@ exports.handler = async function (event, context) {
         if (idProcedimentoMatch) {
             const idProcedimento = idProcedimentoMatch[1];
             const historyUrl = `${SEI_BASE_URL}/controlador.php?acao=andamento_listar&id_procedimento=${idProcedimento}&infra_sistema=100000100&infra_unidade_atual=110000008&infra_hash=`; // Hash might be needed...
+            console.log(`[DEBUG] Attempting History URL: ${historyUrl}`);
 
             // Actually, let's try to find the link in the main page or tree page if possible.
             // But constructing is often easier if we don't need hash. SEI usually needs hash for some actions.
@@ -206,6 +217,7 @@ exports.handler = async function (event, context) {
                     });
                 }
             });
+            console.log(`[DEBUG] History items found: ${historyData.length}`);
         }
 
         return {
@@ -213,7 +225,12 @@ exports.handler = async function (event, context) {
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
             body: JSON.stringify({
                 tree: treeData,
-                history: historyData
+                history: historyData,
+                debug: {
+                    treeSrc: treeIframeSrc,
+                    treeCount: treeData.length,
+                    historyCount: historyData.length
+                }
             })
         };
 
