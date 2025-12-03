@@ -273,17 +273,33 @@ export function openSeiDashboard() {
             </div>
         `;
 
+        // Deadline Alert
+        let deadlineAlert = '';
+        if (proc.deadline) {
+            const color = proc.deadline.isOverdue ? '#dc3545' : (proc.deadline.isUrgent ? '#ffc107' : '#17a2b8');
+            const icon = proc.deadline.isOverdue ? 'fa-exclamation-circle' : 'fa-hourglass-half';
+            deadlineAlert = `<span style="font-size: 0.75em; background: ${color}; color: #fff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;" title="Prazo detectado: ${proc.deadline.date}"><i class="fas ${icon}"></i> ${proc.deadline.date}</span>`;
+        }
+
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div style="flex-grow: 1;">
-                    <div style="display: flex; align-items: center;">
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
                         <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
                         ${timelineBadge}
-                        ${proc.priority === 'high' ? '<span style="font-size: 0.7em; background: #dc3545; color: white; padding: 1px 4px; border-radius: 3px; margin-left: 8px;">URGENTE</span>' : ''}
+                        ${deadlineAlert}
+                        ${proc.priority === 'high' ? '<span style="font-size: 0.7em; background: #dc3545; color: white; padding: 1px 4px; border-radius: 3px;">URGENTE</span>' : ''}
+                        <span style="font-size: 0.7em; background: var(--secondary-bg); color: var(--text-color); padding: 1px 6px; border-radius: 10px; border: 1px solid var(--separator-color);">${proc.category || 'Geral'}</span>
                     </div>
-                    <div style="font-size: 0.9em; color: var(--text-color); margin-top: 4px; font-weight: 500;">
-                        ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal;">${proc.tipo}</span><br>` : ''}
-                        ${proc.descricao || 'Sem descrição'}
+                    <div style="font-size: 0.9em; color: var(--text-color); margin-top: 6px; font-weight: 500; line-height: 1.4;">
+                        ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal; font-size: 0.9em;">${proc.tipo}</span><br>` : ''}
+                        <span title="Resumo Inteligente: ${proc.smartSummary}">
+                            <i class="fas fa-magic" style="font-size: 0.8em; color: var(--accent-color); margin-right: 4px;" title="Resumo gerado por IA"></i>
+                            ${proc.smartSummary}
+                        </span>
+                        <div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 4px; display: none;" class="full-description">
+                            ${proc.descricao || 'Sem descrição detalhada'}
+                        </div>
                     </div>
                 </div>
                 <div style="text-align: right; min-width: 100px;">
@@ -481,7 +497,10 @@ export function openSeiDashboard() {
                 this.allProcesses = (data.processos || []).map(p => ({
                     ...p,
                     priority: this.calculatePriority(p),
-                    daysElapsed: this.calculateDaysElapsed(p.data)
+                    daysElapsed: this.calculateDaysElapsed(p.data),
+                    category: this.classifyCategory(p),
+                    smartSummary: this.generateSmartSummary(p),
+                    deadline: this.detectDeadline(p)
                 }));
 
                 this.applyFilters();
@@ -498,9 +517,65 @@ export function openSeiDashboard() {
 
         calculatePriority: function (proc) {
             const text = (proc.descricao + ' ' + proc.tipo + ' ' + proc.interessados).toLowerCase();
-            if (text.includes('urgente') || text.includes('liminar') || text.includes('mandado') || text.includes('prazo')) return 'high';
-            if (text.includes('memorando') || text.includes('ofício')) return 'medium';
+            // High Priority
+            if (text.match(/(urgente|liminar|mandado|prazo|imediato|prioridade|vencimento|atraso)/)) return 'high';
+            // Medium Priority
+            if (text.match(/(memorando|ofício|solicitação|pedido|requerimento)/)) return 'medium';
             return 'low';
+        },
+
+        classifyCategory: function (proc) {
+            const text = (proc.descricao + ' ' + proc.tipo + ' ' + proc.interessados + ' ' + proc.unidade).toLowerCase();
+            if (text.match(/(pagamento|fatura|nota fiscal|empenho|financeiro|compra)/)) return 'Financeiro';
+            if (text.match(/(contrato|aditivo|licitação|pregão|jurídico|parecer|lei|decreto)/)) return 'Jurídico';
+            if (text.match(/(servidor|férias|ponto|nomeação|exoneração|rh|pessoal)/)) return 'RH';
+            if (text.match(/(sistema|ti|suporte|computador|rede|software)/)) return 'TI';
+            return 'Geral';
+        },
+
+        generateSmartSummary: function (proc) {
+            let text = proc.descricao || '';
+            if (!text) return 'Sem informações detalhadas.';
+
+            // Remove common prefixes
+            text = text.replace(/^processo referente a\s*/i, '')
+                .replace(/^trata-se de\s*/i, '')
+                .replace(/^expediente sobre\s*/i, '');
+
+            // If text is short, return as is
+            if (text.length < 80) return text;
+
+            // Try to grab the first significant sentence
+            const sentences = text.split(/[.!?]\s+/);
+            if (sentences.length > 0) return sentences[0] + '.';
+
+            // Fallback truncation
+            return text.substring(0, 80) + '...';
+        },
+
+        detectDeadline: function (proc) {
+            const text = (proc.descricao + ' ' + proc.tipo).toLowerCase();
+            // Look for dates in format DD/MM/YYYY or DD/MM
+            const dateRegex = /(\d{2}\/\d{2}(?:\/\d{4})?)/g;
+            const matches = text.match(dateRegex);
+
+            if (matches) {
+                // Parse dates and check if any is in the future or recent past
+                const now = new Date();
+                for (const dateStr of matches) {
+                    const parts = dateStr.split('/');
+                    let year = now.getFullYear();
+                    if (parts.length === 3) year = parseInt(parts[2]);
+                    const date = new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
+
+                    // If date is valid and within next 30 days or past 7 days
+                    const diffDays = (date - now) / (1000 * 60 * 60 * 24);
+                    if (diffDays > -7 && diffDays < 30) {
+                        return { date: dateStr, isUrgent: diffDays < 3, isOverdue: diffDays < 0 };
+                    }
+                }
+            }
+            return null;
         },
 
         calculateDaysElapsed: function (dateString) {
