@@ -283,22 +283,27 @@ export function openSeiDashboard() {
 
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="flex-grow: 1;">
-                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
-                        <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
-                        ${timelineBadge}
-                        ${deadlineAlert}
-                        ${proc.priority === 'high' ? '<span style="font-size: 0.7em; background: #dc3545; color: white; padding: 1px 4px; border-radius: 3px;">URGENTE</span>' : ''}
-                        <span style="font-size: 0.7em; background: var(--secondary-bg); color: var(--text-color); padding: 1px 6px; border-radius: 10px; border: 1px solid var(--separator-color);">${proc.category || 'Geral'}</span>
+                <div style="flex-grow: 1; display: flex; gap: 10px;">
+                    <div style="padding-top: 4px;">
+                        <input type="checkbox" class="process-checkbox" id="cb_${proc.protocolo.replace(/\D/g, '')}" style="transform: scale(1.2); cursor: pointer;">
                     </div>
-                    <div style="font-size: 0.9em; color: var(--text-color); margin-top: 6px; font-weight: 500; line-height: 1.4;">
-                        ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal; font-size: 0.9em;">${proc.tipo}</span><br>` : ''}
-                        <span title="Resumo Inteligente: ${proc.smartSummary}">
-                            <i class="fas fa-magic" style="font-size: 0.8em; color: var(--accent-color); margin-right: 4px;" title="Resumo gerado por IA"></i>
-                            ${proc.smartSummary}
-                        </span>
-                        <div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 4px; display: none;" class="full-description">
-                            ${proc.descricao || 'Sem descrição detalhada'}
+                    <div style="flex-grow: 1;">
+                        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
+                            <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
+                            ${timelineBadge}
+                            ${deadlineAlert}
+                            ${proc.priority === 'high' ? '<span style="font-size: 0.7em; background: #dc3545; color: white; padding: 1px 4px; border-radius: 3px;">URGENTE</span>' : ''}
+                            <span style="font-size: 0.7em; background: var(--secondary-bg); color: var(--text-color); padding: 1px 6px; border-radius: 10px; border: 1px solid var(--separator-color);">${proc.category || 'Geral'}</span>
+                        </div>
+                        <div style="font-size: 0.9em; color: var(--text-color); margin-top: 6px; font-weight: 500; line-height: 1.4;">
+                            ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal; font-size: 0.9em;">${proc.tipo}</span><br>` : ''}
+                            <span title="Resumo Inteligente: ${proc.smartSummary}">
+                                <i class="fas fa-magic" style="font-size: 0.8em; color: var(--accent-color); margin-right: 4px;" title="Resumo gerado por IA"></i>
+                                ${proc.smartSummary}
+                            </span>
+                            <div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 4px; display: none;" class="full-description">
+                                ${proc.descricao || 'Sem descrição detalhada'}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -308,12 +313,15 @@ export function openSeiDashboard() {
                 </div>
             </div>
             
-            ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
-            ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
+            ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px; margin-left: 25px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
+            ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px; margin-left: 25px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
 
             ${noteSection}
 
-            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px;">
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px; margin-left: 25px;">
+                <button class="app-btn-small" id="btnQuickView_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px; background: var(--accent-color); color: white;">
+                    <i class="fas fa-eye"></i> Espiar
+                </button>
                 <button class="app-btn-small" id="btnImport_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
                     <i class="fas fa-download"></i> Importar
                 </button>
@@ -329,6 +337,19 @@ export function openSeiDashboard() {
             </div>
         `;
         container.appendChild(card);
+
+        // Checkbox Logic
+        const checkbox = card.querySelector(`#cb_${proc.protocolo.replace(/\D/g, '')}`);
+        if (checkbox && appState) {
+            checkbox.checked = appState.selectedProcesses.has(proc.protocolo);
+            checkbox.onchange = () => appState.toggleSelection(proc.protocolo);
+        }
+
+        // Quick View Logic
+        const btnQuickView = card.querySelector(`#btnQuickView_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnQuickView && appState) {
+            btnQuickView.onclick = () => appState.openQuickView(proc);
+        }
 
         // Event Listeners
         const btnImport = card.querySelector(`#btnImport_${proc.protocolo.replace(/\D/g, '')}`);
@@ -424,11 +445,23 @@ export function openSeiDashboard() {
     // We can append it to `els.syncBtn.parentNode` if it exists, or just after `els.syncBtn`.
     els.syncBtn.parentNode.insertBefore(showMonitoredBtn, els.syncBtn.nextSibling);
 
+    // Batch Actions Toolbar
+    const batchToolbar = document.createElement('div');
+    batchToolbar.id = `batchToolbar_${uniqueSuffix}`;
+    batchToolbar.style.cssText = 'display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--toolbar-bg); padding: 10px 20px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1000; align-items: center; gap: 15px; border: 1px solid var(--accent-color);';
+    batchToolbar.innerHTML = `
+        <span style="font-weight: bold; color: var(--text-color);"><span id="batchCount_${uniqueSuffix}">0</span> selecionados</span>
+        <button class="app-btn-small" id="batchExport_${uniqueSuffix}"><i class="fas fa-file-pdf"></i> Exportar Relatório</button>
+        <button class="app-btn-small" style="background: transparent; border: 1px solid var(--text-color); color: var(--text-color);" id="batchClear_${uniqueSuffix}">Cancelar</button>
+    `;
+    winData.element.querySelector('.sei-dashboard-container').appendChild(batchToolbar);
+
     const appState = {
         winId,
         appDataType: 'sei-dashboard',
         allProcesses: [],
         filteredProcesses: [],
+        selectedProcesses: new Set(),
         filters: {
             search: '',
             priority: 'all', // all, high, medium, low
@@ -460,8 +493,189 @@ export function openSeiDashboard() {
                 });
             }
 
+            // Batch Actions Listeners
+            const batchExportBtn = batchToolbar.querySelector(`#batchExport_${uniqueSuffix}`);
+            const batchClearBtn = batchToolbar.querySelector(`#batchClear_${uniqueSuffix}`);
+
+            batchExportBtn.onclick = () => this.exportBatchPDF();
+            batchClearBtn.onclick = () => this.clearSelection();
+
             // Initial Load
             this.fetchProcessos();
+        },
+
+        toggleSelection: function (protocolo) {
+            if (this.selectedProcesses.has(protocolo)) {
+                this.selectedProcesses.delete(protocolo);
+            } else {
+                this.selectedProcesses.add(protocolo);
+            }
+            this.updateBatchToolbar();
+        },
+
+        clearSelection: function () {
+            this.selectedProcesses.clear();
+            this.updateBatchToolbar();
+            // Uncheck all boxes
+            const checkboxes = winData.element.querySelectorAll('.process-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+        },
+
+        updateBatchToolbar: function () {
+            const count = this.selectedProcesses.size;
+            const countSpan = batchToolbar.querySelector(`#batchCount_${uniqueSuffix}`);
+            countSpan.textContent = count;
+            batchToolbar.style.display = count > 0 ? 'flex' : 'none';
+        },
+
+        exportBatchPDF: function () {
+            const selected = this.allProcesses.filter(p => this.selectedProcesses.has(p.protocolo));
+            if (selected.length === 0) return;
+
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>Relatório de Processos SEI</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 20px; }
+                        h1 { text-align: center; color: #333; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                        .urgent { color: red; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Relatório de Processos Selecionados</h1>
+                    <p>Gerado em: ${new Date().toLocaleString()}</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Protocolo</th>
+                                <th>Tipo/Resumo</th>
+                                <th>Descrição</th>
+                                <th>Unidade</th>
+                                <th>Prioridade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${selected.map(p => `
+                                <tr>
+                                    <td>${p.protocolo}</td>
+                                    <td>${p.tipo || '-'}</td>
+                                    <td>${p.descricao || '-'}</td>
+                                    <td>${p.unidade}</td>
+                                    <td class="${p.priority === 'high' ? 'urgent' : ''}">${p.priority.toUpperCase()}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    <script>window.print();</script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        },
+
+        openQuickView: async function (proc) {
+            // Create Modal
+            const modalId = `quickViewModal_${uniqueSuffix}`;
+            let modal = document.getElementById(modalId);
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = modalId;
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; display: flex; justify-content: center; align-items: center;';
+                modal.innerHTML = `
+                    <div style="background: var(--window-bg); width: 80%; height: 80%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+                        <div style="padding: 15px; border-bottom: 1px solid var(--separator-color); display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0;">Detalhes: <span id="qvTitle_${uniqueSuffix}"></span></h3>
+                            <button class="app-btn-close" id="qvClose_${uniqueSuffix}">&times;</button>
+                        </div>
+                        <div style="flex-grow: 1; display: flex; overflow: hidden;">
+                            <div style="width: 30%; border-right: 1px solid var(--separator-color); overflow-y: auto; padding: 10px;" id="qvTree_${uniqueSuffix}">
+                                Carregando árvore...
+                            </div>
+                            <div style="width: 70%; overflow-y: auto; padding: 10px;" id="qvContent_${uniqueSuffix}">
+                                <h4 style="margin-top: 0;">Histórico de Andamentos</h4>
+                                <div id="qvHistory_${uniqueSuffix}">Carregando histórico...</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+
+                modal.querySelector(`#qvClose_${uniqueSuffix}`).onclick = () => {
+                    modal.style.display = 'none';
+                };
+            }
+
+            modal.style.display = 'flex';
+            modal.querySelector(`#qvTitle_${uniqueSuffix}`).textContent = proc.protocolo;
+            modal.querySelector(`#qvTree_${uniqueSuffix}`).innerHTML = '<div class="spinner"></div> Carregando...';
+            modal.querySelector(`#qvHistory_${uniqueSuffix}`).innerHTML = '<div class="spinner"></div> Carregando...';
+
+            try {
+                const user = localStorage.getItem('pmos_sei_user');
+                // We need password too, but storing it in localstorage is unsafe. 
+                // Ideally we should use the session cookie, but for now let's ask user to ensure they are logged in or use the inputs if available.
+                // Assuming inputs are still populated or we have a token.
+                // For this demo, let's use the inputs from the form if visible, or fail gracefully.
+                const pass = els.pass.value.trim();
+                const orgao = els.orgao.value.trim();
+
+                const response = await fetch('/api/sei/detalhes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        usuario: user,
+                        senha: pass,
+                        orgao: orgao,
+                        link_sei: proc.link_sei,
+                        cookies: currentCookies
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) throw new Error(data.error);
+
+                // Render Tree
+                const treeHtml = data.tree.map(item => `
+                    <div style="padding: 4px 0; padding-left: ${item.type === 'folder' ? '0' : '20px'};">
+                        <i class="fas ${item.type === 'folder' ? 'fa-folder' : 'fa-file-alt'}" style="color: ${item.type === 'folder' ? '#f0ad4e' : 'var(--text-color)'}; margin-right: 5px;"></i>
+                        <a href="${item.link}" target="_blank" style="text-decoration: none; color: var(--text-color);">${item.title}</a>
+                    </div>
+                `).join('');
+                modal.querySelector(`#qvTree_${uniqueSuffix}`).innerHTML = treeHtml || 'Nenhum documento encontrado.';
+
+                // Render History
+                const historyHtml = `
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                        <thead>
+                            <tr style="background: var(--secondary-bg); text-align: left;">
+                                <th style="padding: 8px;">Data</th>
+                                <th style="padding: 8px;">Unidade</th>
+                                <th style="padding: 8px;">Descrição</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.history.map(h => `
+                                <tr style="border-bottom: 1px solid var(--separator-color);">
+                                    <td style="padding: 8px;">${h.data}</td>
+                                    <td style="padding: 8px;">${h.unidade}</td>
+                                    <td style="padding: 8px;">${h.descricao}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                modal.querySelector(`#qvHistory_${uniqueSuffix}`).innerHTML = historyHtml || 'Nenhum andamento encontrado.';
+
+            } catch (e) {
+                modal.querySelector(`#qvTree_${uniqueSuffix}`).innerHTML = `<p style="color: red;">Erro: ${e.message}</p>`;
+                modal.querySelector(`#qvHistory_${uniqueSuffix}`).innerHTML = '';
+            }
         },
 
         fetchProcessos: async function () {
@@ -611,6 +825,7 @@ export function openSeiDashboard() {
                 els.empty.style.display = 'block';
                 els.empty.innerHTML = '<p>Nenhum processo encontrado com os filtros atuais.</p>';
             }
+            this.updateBatchToolbar(); // Update toolbar visibility after rendering
         },
 
         saveNote: function (protocolo, note) {
@@ -633,4 +848,3 @@ export function openSeiDashboard() {
 
     return winId;
 }
-
