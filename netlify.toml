@@ -9,6 +9,21 @@
   PYTHON_VERSION = "3.9"
 
 [[redirects]]
+  from = "/api/sei/processos"
+  to = "/.netlify/functions/sei-processos"
+  status = 200
+
+[[redirects]]
+  from = "/api/sei/auth/challenge"
+  to = "/.netlify/functions/sei-auth-challenge"
+  status = 200
+
+[[redirects]]
+  from = "/api/sei/detalhes"
+  to = "/.netlify/functions/sei-detalhes-processo"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api"
   status = 200
