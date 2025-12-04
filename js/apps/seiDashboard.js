@@ -53,6 +53,13 @@ export function openSeiDashboard() {
                     <option value="medium">Média Prioridade</option>
                     <option value="low">Baixa Prioridade</option>
                 </select>
+                <select id="tagFilter_${uniqueSuffix}" class="app-select" style="margin-bottom: 0; width: auto;">
+                    <option value="all">Todas Tags</option>
+                </select>
+                <select id="assigneeFilter_${uniqueSuffix}" class="app-select" style="margin-bottom: 0; width: auto;">
+                    <option value="all">Todos Responsáveis</option>
+                    <option value="unassigned">Sem Atribuição</option>
+                </select>
              </div>
         </div>
         <div class="sei-dashboard-container" style="padding: 20px; display: flex; flex-direction: column; height: calc(100% - 60px); overflow: hidden;">
@@ -294,6 +301,11 @@ export function openSeiDashboard() {
                             ${deadlineAlert}
                             ${proc.priority === 'high' ? '<span style="font-size: 0.7em; background: #dc3545; color: white; padding: 1px 4px; border-radius: 3px;">URGENTE</span>' : ''}
                             <span style="font-size: 0.7em; background: var(--secondary-bg); color: var(--text-color); padding: 1px 6px; border-radius: 10px; border: 1px solid var(--separator-color);">${proc.category || 'Geral'}</span>
+                            ${appState ? appState.getProcessTags(proc.protocolo).map(tag =>
+            `<span style="font-size: 0.65em; background: ${tag.color}; color: white; padding: 2px 6px; border-radius: 10px; font-weight: 600; cursor: pointer;" title="Tag: ${tag.name}" data-tag-id="${Object.keys(appState.tags).find(id => appState.tags[id] === tag)}">
+                                    <i class="fas fa-tag" style="font-size: 0.9em;"></i> ${tag.name}
+                                </span>`
+        ).join('') : ''}
                         </div>
                         <div style="font-size: 0.9em; color: var(--text-color); margin-top: 6px; font-weight: 500; line-height: 1.4;">
                             ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal; font-size: 0.9em;">${proc.tipo}</span><br>` : ''}
@@ -315,10 +327,14 @@ export function openSeiDashboard() {
             
             ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px; margin-left: 25px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
             ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px; margin-left: 25px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
+            ${appState && appState.getProcessAssignee(proc.protocolo) ?
+                `<div style="font-size: 0.85em; color: var(--accent-color); margin-top: 2px; margin-left: 25px;">
+                    <i class="fas fa-user-check"></i> <strong>Responsável:</strong> ${appState.teamMembers.find(m => m.id === appState.getProcessAssignee(proc.protocolo))?.name || 'Desconhecido'}
+                </div>` : ''}
 
             ${noteSection}
 
-            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px; margin-left: 25px;">
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--separator-color); display: flex; gap: 8px; flex-wrap: wrap; margin-left: 25px;">
                 <button class="app-btn-small" id="btnQuickView_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px; background: var(--accent-color); color: white;">
                     <i class="fas fa-eye"></i> Espiar
                 </button>
@@ -327,6 +343,12 @@ export function openSeiDashboard() {
                 </button>
                 <button class="app-btn-small" id="btnMonitor_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
                     <i class="fas ${monitorBtnIcon}"></i> ${monitorBtnText}
+                </button>
+                <button class="app-btn-small" id="btnTag_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px; background: #6c757d; color: white;">
+                    <i class="fas fa-tags"></i> Tags
+                </button>
+                <button class="app-btn-small" id="btnAssign_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px; background: #17a2b8; color: white;">
+                    <i class="fas fa-user-plus"></i> Atribuir
                 </button>
                 <button class="app-btn-small" id="btnNote_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
                     <i class="fas fa-sticky-note"></i> Nota
@@ -418,6 +440,18 @@ export function openSeiDashboard() {
                 }
             };
         }
+
+        // Tag Logic
+        const btnTag = card.querySelector(`#btnTag_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnTag && appState) {
+            btnTag.onclick = () => appState.openTagModal(proc.protocolo);
+        }
+
+        // Assignment Logic
+        const btnAssign = card.querySelector(`#btnAssign_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnAssign && appState) {
+            btnAssign.onclick = () => appState.openAssignModal(proc.protocolo);
+        }
     }
 
     // Add Monitorados Button Action
@@ -451,6 +485,8 @@ export function openSeiDashboard() {
     batchToolbar.style.cssText = 'display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--toolbar-bg); padding: 10px 20px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 1000; align-items: center; gap: 15px; border: 1px solid var(--accent-color);';
     batchToolbar.innerHTML = `
         <span style="font-weight: bold; color: var(--text-color);"><span id="batchCount_${uniqueSuffix}">0</span> selecionados</span>
+        <button class="app-btn-small" id="batchTag_${uniqueSuffix}" title="Adicionar tag em lote"><i class="fas fa-tags"></i> Tags</button>
+        <button class="app-btn-small" id="batchAssign_${uniqueSuffix}" title="Atribuir em lote"><i class="fas fa-user-plus"></i> Atribuir</button>
         <button class="app-btn-small" id="batchExport_${uniqueSuffix}"><i class="fas fa-file-pdf"></i> Exportar Relatório</button>
         <button class="app-btn-small" style="background: transparent; border: 1px solid var(--text-color); color: var(--text-color);" id="batchClear_${uniqueSuffix}">Cancelar</button>
     `;
@@ -465,9 +501,15 @@ export function openSeiDashboard() {
         filters: {
             search: '',
             priority: 'all', // all, high, medium, low
-            unidade: 'all'
+            unidade: 'all',
+            tag: 'all', // all or specific tagId
+            assignee: 'all' // all, unassigned, or specific assignee
         },
         notes: JSON.parse(localStorage.getItem('pmos_sei_notes') || '{}'),
+        tags: JSON.parse(localStorage.getItem('pmos_sei_tags') || '{}'), // { tagId: { name, color } }
+        processTags: JSON.parse(localStorage.getItem('pmos_sei_process_tags') || '{}'), // { protocolo: [tagIds] }
+        processAssignees: JSON.parse(localStorage.getItem('pmos_sei_assignees') || '{}'), // { protocolo: assignee }
+        teamMembers: JSON.parse(localStorage.getItem('pmos_sei_team') || '[]'), // [{ id, name }]
 
         getData: function () { return {}; },
         loadData: function () { },
@@ -478,6 +520,8 @@ export function openSeiDashboard() {
             // Setup Search and Filter Listeners
             const searchInput = winData.element.querySelector(`#searchInput_${uniqueSuffix}`);
             const priorityFilter = winData.element.querySelector(`#priorityFilter_${uniqueSuffix}`);
+            const tagFilter = winData.element.querySelector(`#tagFilter_${uniqueSuffix}`);
+            const assigneeFilter = winData.element.querySelector(`#assigneeFilter_${uniqueSuffix}`);
 
             if (searchInput) {
                 searchInput.addEventListener('input', (e) => {
@@ -493,12 +537,39 @@ export function openSeiDashboard() {
                 });
             }
 
+            if (tagFilter) {
+                tagFilter.addEventListener('change', (e) => {
+                    this.filters.tag = e.target.value;
+                    this.applyFilters();
+                });
+            }
+
+            if (assigneeFilter) {
+                assigneeFilter.addEventListener('change', (e) => {
+                    this.filters.assignee = e.target.value;
+                    this.applyFilters();
+                });
+            }
+
+            // Populate tag and assignee filters
+            this.refreshFilterDropdowns();
+
             // Batch Actions Listeners
             const batchExportBtn = batchToolbar.querySelector(`#batchExport_${uniqueSuffix}`);
             const batchClearBtn = batchToolbar.querySelector(`#batchClear_${uniqueSuffix}`);
+            const batchTagBtn = batchToolbar.querySelector(`#batchTag_${uniqueSuffix}`);
+            const batchAssignBtn = batchToolbar.querySelector(`#batchAssign_${uniqueSuffix}`);
 
             batchExportBtn.onclick = () => this.exportBatchPDF();
             batchClearBtn.onclick = () => this.clearSelection();
+
+            if (batchTagBtn) {
+                batchTagBtn.onclick = () => this.batchAddTags();
+            }
+
+            if (batchAssignBtn) {
+                batchAssignBtn.onclick = () => this.batchAssignProcesses();
+            }
 
             // Initial Load
             this.fetchProcessos();
@@ -807,7 +878,20 @@ export function openSeiDashboard() {
             this.filteredProcesses = this.allProcesses.filter(proc => {
                 const matchesSearch = (proc.protocolo + proc.descricao + proc.tipo + proc.interessados).toLowerCase().includes(this.filters.search);
                 const matchesPriority = this.filters.priority === 'all' || proc.priority === this.filters.priority;
-                return matchesSearch && matchesPriority;
+
+                // Tag filter
+                const matchesTag = this.filters.tag === 'all' ||
+                    (this.processTags[proc.protocolo] && this.processTags[proc.protocolo].includes(this.filters.tag));
+
+                // Assignee filter
+                let matchesAssignee = true;
+                if (this.filters.assignee === 'unassigned') {
+                    matchesAssignee = !this.processAssignees[proc.protocolo];
+                } else if (this.filters.assignee !== 'all') {
+                    matchesAssignee = this.processAssignees[proc.protocolo] === this.filters.assignee;
+                }
+
+                return matchesSearch && matchesPriority && matchesTag && matchesAssignee;
             });
             this.renderList();
         },
@@ -836,6 +920,389 @@ export function openSeiDashboard() {
 
         getNote: function (protocolo) {
             return this.notes[protocolo] || '';
+        },
+
+        // Tags Management
+        createTag: function (name, color) {
+            const tagId = 'tag_' + Date.now();
+            this.tags[tagId] = { name, color };
+            localStorage.setItem('pmos_sei_tags', JSON.stringify(this.tags));
+            return tagId;
+        },
+
+        deleteTag: function (tagId) {
+            delete this.tags[tagId];
+            // Remove tag from all processes
+            Object.keys(this.processTags).forEach(protocolo => {
+                this.processTags[protocolo] = this.processTags[protocolo].filter(id => id !== tagId);
+            });
+            localStorage.setItem('pmos_sei_tags', JSON.stringify(this.tags));
+            localStorage.setItem('pmos_sei_process_tags', JSON.stringify(this.processTags));
+        },
+
+        addTagToProcess: function (protocolo, tagId) {
+            if (!this.processTags[protocolo]) this.processTags[protocolo] = [];
+            if (!this.processTags[protocolo].includes(tagId)) {
+                this.processTags[protocolo].push(tagId);
+                localStorage.setItem('pmos_sei_process_tags', JSON.stringify(this.processTags));
+            }
+        },
+
+        removeTagFromProcess: function (protocolo, tagId) {
+            if (this.processTags[protocolo]) {
+                this.processTags[protocolo] = this.processTags[protocolo].filter(id => id !== tagId);
+                localStorage.setItem('pmos_sei_process_tags', JSON.stringify(this.processTags));
+            }
+        },
+
+        getProcessTags: function (protocolo) {
+            const tagIds = this.processTags[protocolo] || [];
+            return tagIds.map(id => this.tags[id]).filter(Boolean);
+        },
+
+        // Assignment Management
+        assignProcess: function (protocolo, assignee) {
+            this.processAssignees[protocolo] = assignee;
+            localStorage.setItem('pmos_sei_assignees', JSON.stringify(this.processAssignees));
+        },
+
+        getProcessAssignee: function (protocolo) {
+            return this.processAssignees[protocolo] || null;
+        },
+
+        addTeamMember: function (name) {
+            const id = 'member_' + Date.now();
+            this.teamMembers.push({ id, name });
+            localStorage.setItem('pmos_sei_team', JSON.stringify(this.teamMembers));
+            return id;
+        },
+
+        removeTeamMember: function (id) {
+            this.teamMembers = this.teamMembers.filter(m => m.id !== id);
+            // Remove assignments of this member
+            Object.keys(this.processAssignees).forEach(protocolo => {
+                if (this.processAssignees[protocolo] === id) {
+                    delete this.processAssignees[protocolo];
+                }
+            });
+            localStorage.setItem('pmos_sei_team', JSON.stringify(this.teamMembers));
+            localStorage.setItem('pmos_sei_assignees', JSON.stringify(this.processAssignees));
+        },
+
+        // Tag Modal
+        openTagModal: function (protocolo) {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 3000; display: flex; justify-content: center; align-items: center;';
+
+            const currentTags = this.getProcessTags(protocolo);
+            const currentTagIds = this.processTags[protocolo] || [];
+
+            modal.innerHTML = `
+                <div style="background: var(--window-bg); padding: 20px; border-radius: 8px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
+                    <h3 style="margin-top: 0;">Gerenciar Tags - ${protocolo}</h3>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="font-size: 0.9em; margin-bottom: 8px;">Tags Existentes:</h4>
+                        <div id="tagList" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; min-height: 40px;">
+                            ${Object.keys(this.tags).length === 0 ? '<span style="color: var(--secondary-text-color); font-size: 0.9em;">Nenhuma tag criada ainda</span>' : ''}
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 15px; padding: 10px; background: var(--input-bg); border-radius: 6px;">
+                        <h4 style="font-size: 0.9em; margin-top: 0; margin-bottom: 8px;">Criar Nova Tag:</h4>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="newTagName" placeholder="Nome da tag" class="app-input" style="flex: 1; margin: 0;">
+                            <input type="color" id="newTagColor" value="#6c757d" style="width: 50px; height: 35px; border: none; border-radius: 4px; cursor: pointer;">
+                            <button class="app-button primary" id="createTagBtn" style="white-space: nowrap;">
+                                <i class="fas fa-plus"></i> Criar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
+                        <button class="app-button secondary" id="closeTagModal">Fechar</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const renderTags = () => {
+                const tagList = modal.querySelector('#tagList');
+                if (Object.keys(this.tags).length === 0) {
+                    tagList.innerHTML = '<span style="color: var(--secondary-text-color); font-size: 0.9em;">Nenhuma tag criada ainda</span>';
+                    return;
+                }
+
+                tagList.innerHTML = '';
+                Object.keys(this.tags).forEach(tagId => {
+                    const tag = this.tags[tagId];
+                    const isSelected = currentTagIds.includes(tagId);
+                    const tagEl = document.createElement('div');
+                    tagEl.style.cssText = `
+                        display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; 
+                        background: ${tag.color}; color: white; border-radius: 15px; cursor: pointer;
+                        border: 2px solid ${isSelected ? '#fff' : 'transparent'};
+                        opacity: ${isSelected ? '1' : '0.7'};
+                        transition: all 0.2s;
+                    `;
+                    tagEl.innerHTML = `
+                        <i class="fas ${isSelected ? 'fa-check-circle' : 'fa-circle'}"></i>
+                        <span>${tag.name}</span>
+                        <i class="fas fa-times" style="margin-left: 4px; font-size: 0.8em;"></i>
+                    `;
+
+                    // Toggle tag on click
+                    tagEl.onclick = (e) => {
+                        if (e.target.classList.contains('fa-times')) {
+                            if (confirm(`Deseja deletar a tag "${tag.name}"? Ela será removida de todos os processos.`)) {
+                                this.deleteTag(tagId);
+                                renderTags();
+                                this.renderList(); // Refresh main list
+                            }
+                        } else {
+                            if (isSelected) {
+                                this.removeTagFromProcess(protocolo, tagId);
+                            } else {
+                                this.addTagToProcess(protocolo, tagId);
+                            }
+                            this.renderList(); // Refresh main list
+                            modal.remove();
+                        }
+                    };
+
+                    tagList.appendChild(tagEl);
+                });
+            };
+
+            renderTags();
+
+            // Create tag button
+            modal.querySelector('#createTagBtn').onclick = () => {
+                const name = modal.querySelector('#newTagName').value.trim();
+                const color = modal.querySelector('#newTagColor').value;
+                if (name) {
+                    const tagId = this.createTag(name, color);
+                    this.addTagToProcess(protocolo, tagId);
+                    modal.querySelector('#newTagName').value = '';
+                    renderTags();
+                    this.renderList();
+                    showNotification(`Tag "${name}" criada e adicionada!`, 2000);
+                }
+            };
+
+            // Close modal
+            modal.querySelector('#closeTagModal').onclick = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+        },
+
+        // Assignment Modal
+        openAssignModal: function (protocolo) {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 3000; display: flex; justify-content: center; align-items: center;';
+
+            const currentAssignee = this.getProcessAssignee(protocolo);
+
+            modal.innerHTML = `
+                <div style="background: var(--window-bg); padding: 20px; border-radius: 8px; max-width: 450px; width: 90%;">
+                    <h3 style="margin-top: 0;">Atribuir Processo - ${protocolo}</h3>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Responsável:</label>
+                        <select id="assigneeSelect" class="app-select" style="width: 100%; margin: 0;">
+                            <option value="">-- Sem atribuição --</option>
+                            ${this.teamMembers.map(member =>
+                `<option value="${member.id}" ${currentAssignee === member.id ? 'selected' : ''}>${member.name}</option>`
+            ).join('')}
+                        </select>
+                    </div>
+                    
+                    <div style="margin-bottom: 15px; padding: 10px; background: var(--input-bg); border-radius: 6px;">
+                        <h4 style="font-size: 0.9em; margin-top: 0; margin-bottom: 8px;">Adicionar Membro da Equipe:</h4>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="newMemberName" placeholder="Nome do membro" class="app-input" style="flex: 1; margin: 0;">
+                            <button class="app-button primary" id="addMemberBtn">
+                                <i class="fas fa-user-plus"></i> Adicionar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 15px;">
+                        <button class="app-button secondary" id="closeAssignModal">Cancelar</button>
+                        <button class="app-button primary" id="saveAssignBtn">Salvar</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Add member button
+            modal.querySelector('#addMemberBtn').onclick = () => {
+                const name = modal.querySelector('#newMemberName').value.trim();
+                if (name) {
+                    const id = this.addTeamMember(name);
+                    modal.querySelector('#newMemberName').value = '';
+                    // Update select
+                    const select = modal.querySelector('#assigneeSelect');
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = name;
+                    select.appendChild(option);
+                    showNotification(`Membro "${name}" adicionado!`, 2000);
+                }
+            };
+
+            // Save assignment
+            modal.querySelector('#saveAssignBtn').onclick = () => {
+                const assignee = modal.querySelector('#assigneeSelect').value;
+                if (assignee) {
+                    this.assignProcess(protocolo, assignee);
+                    showNotification('Processo atribuído!', 2000);
+                } else {
+                    delete this.processAssignees[protocolo];
+                    localStorage.setItem('pmos_sei_assignees', JSON.stringify(this.processAssignees));
+                    showNotification('Atribuição removida!', 2000);
+                }
+                this.renderList();
+                modal.remove();
+            };
+
+            // Close modal
+            modal.querySelector('#closeAssignModal').onclick = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) modal.remove(); }
+        },
+
+        // Refresh filter dropdowns
+        refreshFilterDropdowns: function () {
+            const tagFilter = winData.element.querySelector(`#tagFilter_${uniqueSuffix}`);
+            const assigneeFilter = winData.element.querySelector(`#assigneeFilter_${uniqueSuffix}`);
+
+            // Update tag filter
+            if (tagFilter) {
+                const currentValue = tagFilter.value;
+                tagFilter.innerHTML = '<option value="all">Todas Tags</option>';
+                Object.keys(this.tags).forEach(tagId => {
+                    const tag = this.tags[tagId];
+                    const option = document.createElement('option');
+                    option.value = tagId;
+                    option.textContent = tag.name;
+                    option.style.color = tag.color;
+                    tagFilter.appendChild(option);
+                });
+                tagFilter.value = currentValue;
+            }
+
+            // Update assignee filter
+            if (assigneeFilter) {
+                const currentValue = assigneeFilter.value;
+                assigneeFilter.innerHTML = '<option value="all">Todos Responsáveis</option><option value="unassigned">Sem Atribuição</option>';
+                this.teamMembers.forEach(member => {
+                    const option = document.createElement('option');
+                    option.value = member.id;
+                    option.textContent = member.name;
+                    assigneeFilter.appendChild(option);
+                });
+                assigneeFilter.value = currentValue;
+            }
+        },
+
+        // Batch add tags
+        batchAddTags: function () {
+            if (this.selectedProcesses.size === 0) return;
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 3000; display: flex; justify-content: center; align-items: center;';
+
+            modal.innerHTML = `
+                <div style="background: var(--window-bg); padding: 20px; border-radius: 8px; max-width: 450px; width: 90%;">
+                    <h3 style="margin-top: 0;">Adicionar Tags em Lote</h3>
+                    <p style="color: var(--secondary-text-color); font-size: 0.9em;">${this.selectedProcesses.size} processos selecionados</p>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Selecione uma tag:</label>
+                        <select id="batchTagSelect" class="app-select" style="width: 100%; margin: 0;">
+                            ${Object.keys(this.tags).length === 0 ? '<option value="">Nenhuma tag disponível</option>' : ''}
+                            ${Object.keys(this.tags).map(tagId => {
+                const tag = this.tags[tagId];
+                return `<option value="${tagId}">${tag.name}</option>`;
+            }).join('')}
+                        </select>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 15px;">
+                        <button class="app-button secondary" id="closeBatchTagModal">Cancelar</button>
+                        <button class="app-button primary" id="applyBatchTag" ${Object.keys(this.tags).length === 0 ? 'disabled' : ''}>Aplicar</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            modal.querySelector('#applyBatchTag').onclick = () => {
+                const tagId = modal.querySelector('#batchTagSelect').value;
+                if (tagId) {
+                    this.selectedProcesses.forEach(protocolo => {
+                        this.addTagToProcess(protocolo, tagId);
+                    });
+                    showNotification(`Tag aplicada a ${this.selectedProcesses.size} processos!`, 2000);
+                    this.renderList();
+                    this.refreshFilterDropdowns();
+                    modal.remove();
+                }
+            };
+
+            modal.querySelector('#closeBatchTagModal').onclick = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+        },
+
+        // Batch assign processes
+        batchAssignProcesses: function () {
+            if (this.selectedProcesses.size === 0) return;
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 3000; display: flex; justify-content: center; align-items: center;';
+
+            modal.innerHTML = `
+                <div style="background: var(--window-bg); padding: 20px; border-radius: 8px; max-width: 450px; width: 90%;">
+                    <h3 style="margin-top: 0;">Atribuir em Lote</h3>
+                    <p style="color: var(--secondary-text-color); font-size: 0.9em;">${this.selectedProcesses.size} processos selecionados</p>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Responsável:</label>
+                        <select id="batchAssigneeSelect" class="app-select" style="width: 100%; margin: 0;">
+                            <option value="">-- Remover atribuição --</option>
+                            ${this.teamMembers.map(member =>
+                `<option value="${member.id}">${member.name}</option>`
+            ).join('')}
+                        </select>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 15px;">
+                        <button class="app-button secondary" id="closeBatchAssignModal">Cancelar</button>
+                        <button class="app-button primary" id="applyBatchAssign">Aplicar</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            modal.querySelector('#applyBatchAssign').onclick = () => {
+                const assignee = modal.querySelector('#batchAssigneeSelect').value;
+                this.selectedProcesses.forEach(protocolo => {
+                    if (assignee) {
+                        this.assignProcess(protocolo, assignee);
+                    } else {
+                        delete this.processAssignees[protocolo];
+                    }
+                });
+                localStorage.setItem('pmos_sei_assignees', JSON.stringify(this.processAssignees));
+                showNotification(`Atribuição aplicada a ${this.selectedProcesses.size} processos!`, 2000);
+                this.renderList();
+                modal.remove();
+            };
+
+            modal.querySelector('#closeBatchAssignModal').onclick = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
         }
     };
 
