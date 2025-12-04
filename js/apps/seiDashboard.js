@@ -1,6 +1,7 @@
 import { generateId, showNotification } from '../main.js';
 import { openKanbanBoard } from './kanbanBoard.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
+import { openMemoGenerator } from './sei/memoGenerator.js';
 
 // URL relativa para funcionar tanto local quanto no Netlify
 const API_BASE = '/api/sei';
@@ -350,6 +351,9 @@ export function openSeiDashboard() {
                 <button class="app-btn-small" id="btnAssign_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px; background: #17a2b8; color: white;">
                     <i class="fas fa-user-plus"></i> Atribuir
                 </button>
+                <button class="app-btn-small" id="btnMemo_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px; background: #7c3aed; color: white;">
+                    <i class="fas fa-magic"></i> Memorando
+                </button>
                 <button class="app-btn-small" id="btnNote_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
                     <i class="fas fa-sticky-note"></i> Nota
                 </button>
@@ -451,6 +455,12 @@ export function openSeiDashboard() {
         const btnAssign = card.querySelector(`#btnAssign_${proc.protocolo.replace(/\D/g, '')}`);
         if (btnAssign && appState) {
             btnAssign.onclick = () => appState.openAssignModal(proc.protocolo);
+        }
+
+        // Memo Generator Logic
+        const btnMemo = card.querySelector(`#btnMemo_${proc.protocolo.replace(/\D/g, '')}`);
+        if (btnMemo) {
+            btnMemo.onclick = () => openMemoGenerator(proc);
         }
     }
 
