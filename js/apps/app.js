@@ -591,6 +591,18 @@ function buildAISuggestionsPrompt(appState, contextData) {
     ].join("\n");
 }
 
+async function extractAIError(response) {
+    try {
+        const data = await response.clone().json();
+        if (data && typeof data.error === 'string' && data.error.trim()) {
+            return data.error.trim();
+        }
+    } catch (e) {
+        console.debug('Resposta de erro da IA não veio em JSON legível:', e);
+    }
+    return `Não foi possível falar com a IA (HTTP ${response.status}).`;
+}
+
 /**
  * Prompt para o modo chat conversacional.
  */
@@ -715,7 +727,9 @@ async function handleAISuggestionsForApp(appState, clickedButton) {
                 statusEl.textContent = "IA indisponível no ambiente local.";
                 bodyEl.innerHTML = "<p>O serviço de IA não está disponível neste ambiente (localhost). Para usar a IA, é necessário implantar o projeto no Netlify ou rodar com `netlify dev`.</p>";
             } else {
-                statusEl.textContent = "Não foi possível falar com a IA agora.";
+                const errorMsg = await extractAIError(response);
+                statusEl.textContent = errorMsg;
+                bodyEl.innerHTML = `<p>${errorMsg}</p>`;
             }
             showNotification("Falha ao obter sugestões da IA.", 3000);
             return;
@@ -799,7 +813,13 @@ async function handleAIChatForApp(appState, container, userQuestion) {
                 chatHistoryEl.appendChild(botMsgEl);
                 chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
             } else {
-                statusEl.textContent = "Não foi possível falar com a IA agora.";
+                const errorMsg = await extractAIError(response);
+                statusEl.textContent = errorMsg;
+                const botMsgEl = document.createElement('div');
+                botMsgEl.className = 'ai-chat-message assistant';
+                botMsgEl.innerHTML = `<p>${errorMsg}</p>`;
+                chatHistoryEl.appendChild(botMsgEl);
+                chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
             }
             showNotification("Falha ao conversar com a IA.", 3000);
             return;

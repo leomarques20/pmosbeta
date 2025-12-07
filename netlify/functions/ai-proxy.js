@@ -2,22 +2,33 @@ const https = require('https');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+const defaultHeaders = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+function buildResponse(statusCode, body) {
+  return {
+    statusCode,
+    headers: defaultHeaders,
+    body: JSON.stringify(body)
+  };
+}
+
 exports.handler = async function(event, context) {
+  if (event.httpMethod === 'OPTIONS') {
+    return buildResponse(200, { ok: true });
+  }
+
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Method not allowed. Use POST.' })
-    };
+    return buildResponse(405, { error: 'Method not allowed. Use POST.' });
   }
 
   if (!GEMINI_API_KEY) {
     console.error('GEMINI_API_KEY não configurada nas variáveis de ambiente do Netlify.');
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Configuração de IA ausente no servidor.' })
-    };
+    return buildResponse(500, { error: 'Configuração de IA ausente no servidor.' });
   }
 
   let payload;
@@ -25,11 +36,7 @@ exports.handler = async function(event, context) {
     payload = JSON.parse(event.body || '{}');
   } catch (err) {
     console.error('Erro ao parsear body JSON:', err);
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'JSON inválido enviado ao ai-proxy.' })
-    };
+    return buildResponse(400, { error: 'JSON inválido enviado ao ai-proxy.' });
   }
 
   const {
@@ -46,11 +53,7 @@ exports.handler = async function(event, context) {
   } = payload || {};
 
   if ((!prompt || typeof prompt !== 'string') && !fileContent) {
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Campo "prompt" ou "fileContent" obrigatório.' })
-    };
+    return buildResponse(400, { error: 'Campo "prompt" ou "fileContent" obrigatório.' });
   }
 
   const userTextParts = [];
@@ -129,15 +132,14 @@ const options = {
 
     if (apiResponse.statusCode < 200 || apiResponse.statusCode >= 300) {
       console.error('Erro da API Gemini:', apiResponse.statusCode, apiResponse.body);
-      return {
+      const friendlyMessage = apiResponse.statusCode === 403
+        ? 'Chave de API do Gemini recusada (403). Verifique se a variável GEMINI_API_KEY está correta e tem acesso à API.'
+        : 'Falha ao chamar IA';
+      return buildResponse(apiResponse.statusCode, {
+        error: friendlyMessage,
         statusCode: apiResponse.statusCode,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Falha ao chamar IA',
-          statusCode: apiResponse.statusCode,
-          details: apiResponse.body
-        })
-      };
+        details: apiResponse.body
+      });
     }
 
     let parsed;
@@ -145,14 +147,10 @@ const options = {
       parsed = JSON.parse(apiResponse.body);
     } catch (err) {
       console.error('Erro ao parsear resposta da API Gemini:', err);
-      return {
-        statusCode: 502,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Resposta inválida da IA',
-          raw: apiResponse.body
-        })
-      };
+      return buildResponse(502, {
+        error: 'Resposta inválida da IA',
+        raw: apiResponse.body
+      });
     }
 
     let text = '';
@@ -171,17 +169,9 @@ const options = {
       text = 'A IA respondeu sem conteúdo de texto utilizável.';
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, raw: parsed })
-    };
+    return buildResponse(200, { text, raw: parsed });
   } catch (err) {
     console.error('Erro inesperado ao chamar Gemini:', err);
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Erro ao comunicar com o serviço de IA.' })
-    };
+    return buildResponse(500, { error: 'Erro ao comunicar com o serviço de IA.' });
   }
 };
