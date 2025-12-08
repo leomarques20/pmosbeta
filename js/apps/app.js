@@ -594,13 +594,19 @@ function buildAISuggestionsPrompt(appState, contextData) {
 async function extractAIError(response) {
     try {
         const data = await response.clone().json();
-        if (data && typeof data.error === 'string' && data.error.trim()) {
-            return data.error.trim();
+        if (data) {
+            if (typeof data.error === 'string' && data.error.trim()) {
+                return data.error.trim();
+            }
+            if (typeof data.details === 'string' && data.details.trim()) {
+                return data.details.trim();
+            }
         }
     } catch (e) {
         console.debug('Resposta de erro da IA não veio em JSON legível:', e);
     }
-    return `Não foi possível falar com a IA (HTTP ${response.status}).`;
+    const statusText = response.statusText ? ` ${response.statusText}` : '';
+    return `Não foi possível falar com a IA (HTTP ${response.status}${statusText}).`;
 }
 
 /**

@@ -5,7 +5,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const defaultHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
@@ -102,7 +102,7 @@ ${fileContent}
     ]
   });
 
-const options = {
+  const options = {
     hostname: 'generativelanguage.googleapis.com',
     path: `/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
     method: 'POST',
@@ -132,13 +132,23 @@ const options = {
 
     if (apiResponse.statusCode < 200 || apiResponse.statusCode >= 300) {
       console.error('Erro da API Gemini:', apiResponse.statusCode, apiResponse.body);
+
+      let parsedError;
+      try {
+        parsedError = JSON.parse(apiResponse.body);
+      } catch (parseErr) {
+        parsedError = null;
+      }
+
+      const errorMessageFromGemini = parsedError?.error?.message || parsedError?.message;
       const friendlyMessage = apiResponse.statusCode === 403
-        ? 'Chave de API do Gemini recusada (403). Verifique se a variável GEMINI_API_KEY está correta e tem acesso à API.'
+        ? 'Chave de API do Gemini recusada (403). Verifique se a variável GEMINI_API_KEY está correta, habilitada para a API e sem restrições de domínio.'
         : 'Falha ao chamar IA';
+
       return buildResponse(apiResponse.statusCode, {
-        error: friendlyMessage,
+        error: errorMessageFromGemini || friendlyMessage,
         statusCode: apiResponse.statusCode,
-        details: apiResponse.body
+        details: errorMessageFromGemini || apiResponse.body
       });
     }
 
