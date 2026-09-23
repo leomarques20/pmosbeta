@@ -5,9 +5,10 @@
 
 [functions]
 
-[build.environment]
-  PYTHON_VERSION = "3.9"
-
+# Rotas específicas do SEI -> funções Node em netlify/functions/.
+# Devem vir antes de qualquer regra genérica (o Netlify aplica a primeira que casar).
+# Obs.: o backend/ Python (FastAPI) é apenas para desenvolvimento local — o Netlify
+# Functions não executa Python, por isso não há catch-all /api/*.
 [[redirects]]
   from = "/api/sei/processos"
   to = "/.netlify/functions/sei-processos"
@@ -23,11 +24,8 @@
   to = "/.netlify/functions/sei-detalhes-processo"
   status = 200
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api"
-  status = 200
-
+# Fallback: caminhos inexistentes servem o app (index.html) com status 404.
+# force = false garante que arquivos estáticos existentes nunca sejam sobrescritos.
 [[redirects]]
   from = "/*"
   to = "/index.html"

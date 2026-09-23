@@ -2,9 +2,14 @@ from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict
-from backend.sei_scraper import get_sei_session, login_and_scrape
-from mangum import Mangum
-import uvicorn
+try:
+    from backend.sei_scraper import get_sei_session, login_and_scrape
+except ImportError:  # executado diretamente: python backend/main.py
+    from sei_scraper import get_sei_session, login_and_scrape
+
+# Backend OPCIONAL para desenvolvimento local (uvicorn backend.main:app --port 8000).
+# Em produção (Netlify) o SEI é atendido pelas funções JS em netlify/functions/sei-*.js;
+# o Netlify Functions não executa Python, então este app NÃO é implantado lá.
 
 app = FastAPI()
 
@@ -64,8 +69,13 @@ async def get_processos(req: LoginRequest):
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-# Handler para Netlify Functions (AWS Lambda adapter)
-handler = Mangum(app)
+# Handler AWS Lambda opcional (Mangum). Não é usado pelo Netlify.
+try:
+    from mangum import Mangum
+    handler = Mangum(app)
+except ImportError:
+    handler = None
 
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,30 +1,50 @@
 const https = require('https');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// Endpoint: POST /.netlify/functions/ai-proxy
+// Corpo: { prompt, appType?, uiLocale?, systemInstruction?, model?, fileContent?, fileName?, fileType?, fileKind? }
+// Resposta 200: { text }   | Erro: { error } com status 4xx/5xx
+const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL_NAME_RE = /^[a-zA-Z0-9._-]{1,64}$/;
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
+const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
+
+function jsonResponse(statusCode, obj) {
+  return { statusCode, headers: JSON_HEADERS, body: JSON.stringify(obj) };
+}
 
 exports.handler = async function(event, context) {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...JSON_HEADERS, Allow: 'POST' },
       body: JSON.stringify({ error: 'Method not allowed. Use POST.' })
     };
   }
 
+  // Lida a cada invocação para refletir alterações de ambiente sem cold start.
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) {
     console.error('GEMINI_API_KEY não configurada nas variáveis de ambiente do Netlify.');
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Configuração de IA ausente no servidor.' })
+      body: JSON.stringify({ error: 'Configuração de IA ausente no servidor: defina GEMINI_API_KEY nas variáveis de ambiente do Netlify.' })
     };
+  }
+
+  let rawBody = event.body || '{}';
+  if (event.isBase64Encoded) {
+    rawBody = Buffer.from(rawBody, 'base64').toString('utf8');
+  }
+  if (Buffer.byteLength(rawBody) > MAX_BODY_BYTES) {
+    return jsonResponse(413, { error: 'Requisição muito grande para o ai-proxy.' });
   }
 
   let payload;
   try {
-    payload = JSON.parse(event.body || '{}');
+    payload = JSON.parse(rawBody);
   } catch (err) {
-    console.error('Erro ao parsear body JSON:', err);
+    console.error('Erro ao parsear body JSON:', err.message);
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json' },
@@ -32,10 +52,13 @@ exports.handler = async function(event, context) {
     };
   }
 
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return jsonResponse(400, { error: 'Corpo da requisição deve ser um objeto JSON.' });
+  }
+
   const {
     prompt,
-    model = 'gemini-2.0-flash',
-    mode = 'free',
+    model: requestedModel,
     appType,
     uiLocale = 'pt-BR',
     systemInstruction,
@@ -43,31 +66,35 @@ exports.handler = async function(event, context) {
     fileName,
     fileType,
     fileKind
-  } = payload || {};
+  } = payload;
 
-  if ((!prompt || typeof prompt !== 'string') && !fileContent) {
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Campo "prompt" ou "fileContent" obrigatório.' })
-    };
+  const model = (typeof requestedModel === 'string' && MODEL_NAME_RE.test(requestedModel))
+    ? requestedModel
+    : DEFAULT_MODEL;
+
+  const hasPrompt = typeof prompt === 'string' && prompt.trim() !== '';
+  const hasFile = typeof fileContent === 'string' && fileContent !== '';
+  if (!hasPrompt && !hasFile) {
+    return jsonResponse(400, { error: 'Campo "prompt" ou "fileContent" obrigatório.' });
   }
 
   const userTextParts = [];
-
-  if (systemInstruction) {
-    userTextParts.push(String(systemInstruction).trim());
-  }
+  const extraParts = [];
 
   if (appType) {
-    userTextParts.push(`Contexto da aplicação PMOS: ${appType}`);
+    userTextParts.push(`Contexto da aplicação PMOS: ${String(appType).slice(0, 100)}`);
   }
 
   if (uiLocale) {
-    userTextParts.push(`Idioma preferencial da resposta: ${uiLocale}`);
+    userTextParts.push(`Idioma preferencial da resposta: ${String(uiLocale).slice(0, 20)}`);
   }
 
-  if (fileContent) {
+  // Imagens chegam como data URL (ai/pmos_ai.js): envia como inlineData em vez de texto base64.
+  const dataUrlMatch = hasFile && /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(fileContent);
+  if (dataUrlMatch) {
+    userTextParts.push(`Arquivo anexado: ${fileName || 'arquivo sem nome'} (${dataUrlMatch[1]})`);
+    extraParts.push({ inlineData: { mimeType: dataUrlMatch[1], data: dataUrlMatch[2].replace(/\s+/g, '') } });
+  } else if (hasFile) {
     userTextParts.push(
       `=== Conteúdo de arquivo anexado ===
 Nome: ${fileName || 'arquivo sem nome'}
@@ -79,7 +106,7 @@ ${fileContent}
     );
   }
 
-  if (prompt && typeof prompt === 'string') {
+  if (hasPrompt) {
     userTextParts.push(prompt.trim());
   }
 
@@ -87,25 +114,28 @@ ${fileContent}
     .filter((p) => p && String(p).trim())
     .join('\n\n');
 
-  const requestBody = JSON.stringify({
+  const geminiRequest = {
     contents: [
       {
-        parts: [
-          {
-            text: fullUserText
-          }
-        ]
+        role: 'user',
+        parts: [{ text: fullUserText }, ...extraParts]
       }
     ]
-  });
+  };
+  if (systemInstruction && String(systemInstruction).trim()) {
+    geminiRequest.systemInstruction = { parts: [{ text: String(systemInstruction).trim() }] };
+  }
+  const requestBody = JSON.stringify(geminiRequest);
 
-const options = {
+  const options = {
     hostname: 'generativelanguage.googleapis.com',
-    path: `/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
+    path: `/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     method: 'POST',
+    timeout: 25000,
     headers: {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(requestBody)
+      'Content-Length': Buffer.byteLength(requestBody),
+      'x-goog-api-key': GEMINI_API_KEY
     }
   };
 
@@ -119,6 +149,9 @@ const options = {
         });
       });
 
+      req.on('timeout', () => {
+        req.destroy(new Error('Tempo esgotado ao chamar a API Gemini.'));
+      });
       req.on('error', (err) => {
         reject(err);
       });
@@ -128,31 +161,24 @@ const options = {
     });
 
     if (apiResponse.statusCode < 200 || apiResponse.statusCode >= 300) {
-      console.error('Erro da API Gemini:', apiResponse.statusCode, apiResponse.body);
-      return {
-        statusCode: apiResponse.statusCode,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Falha ao chamar IA',
-          statusCode: apiResponse.statusCode,
-          details: apiResponse.body
-        })
-      };
+      console.error('Erro da API Gemini:', apiResponse.statusCode, model, String(apiResponse.body).slice(0, 2000));
+      // Não repassa 404/400 do Gemini como tal: o front interpreta 404 como "IA indisponível no ambiente local".
+      const upstream = apiResponse.statusCode;
+      const statusCode = upstream === 429 ? 429 : 502;
+      const error = upstream === 429
+        ? 'Limite de uso da IA atingido. Tente novamente em instantes.'
+        : (upstream === 404
+          ? `Modelo de IA "${model}" indisponível. Verifique GEMINI_MODEL.`
+          : 'Falha ao chamar IA.');
+      return jsonResponse(statusCode, { error, upstreamStatus: upstream });
     }
 
     let parsed;
     try {
       parsed = JSON.parse(apiResponse.body);
     } catch (err) {
-      console.error('Erro ao parsear resposta da API Gemini:', err);
-      return {
-        statusCode: 502,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          error: 'Resposta inválida da IA',
-          raw: apiResponse.body
-        })
-      };
+      console.error('Erro ao parsear resposta da API Gemini:', err.message);
+      return jsonResponse(502, { error: 'Resposta inválida da IA.' });
     }
 
     let text = '';
@@ -160,7 +186,12 @@ const options = {
       if (Array.isArray(parsed.candidates) && parsed.candidates.length > 0) {
         const candidate = parsed.candidates[0];
         if (candidate && candidate.content && Array.isArray(candidate.content.parts)) {
-          text = candidate.content.parts.map((p) => p.text || '').join('\n').trim();
+          // Ignora partes de "pensamento" (thought) dos modelos 2.5.
+          text = candidate.content.parts
+            .filter((p) => p && !p.thought)
+            .map((p) => p.text || '')
+            .join('\n')
+            .trim();
         }
       }
     } catch (err) {
@@ -168,16 +199,15 @@ const options = {
     }
 
     if (!text) {
-      text = 'A IA respondeu sem conteúdo de texto utilizável.';
+      const blockReason = parsed && parsed.promptFeedback && parsed.promptFeedback.blockReason;
+      text = blockReason
+        ? `A IA não respondeu porque o conteúdo foi bloqueado (${blockReason}).`
+        : 'A IA respondeu sem conteúdo de texto utilizável.';
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, raw: parsed })
-    };
+    return jsonResponse(200, { text, model });
   } catch (err) {
-    console.error('Erro inesperado ao chamar Gemini:', err);
+    console.error('Erro inesperado ao chamar Gemini:', err && err.message);
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },

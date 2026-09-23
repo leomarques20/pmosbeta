@@ -3,6 +3,22 @@
  * Sistema de recomendações proativas baseado em análise de comportamento
  */
 
+// `showNotification` é exportada por js/main.js (não é global). Este arquivo é um
+// script clássico, então usa um fallback seguro.
+function showNotification(message, duration = 3000) {
+    if (typeof window.showNotification === 'function') window.showNotification(message, duration);
+    else console.info('[PMOS]', message);
+}
+
+function readJSONStorage(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+        return fallback;
+    }
+}
+
 class ContextualIntelligence {
     constructor() {
         this.userBehavior = {
@@ -12,6 +28,7 @@ class ContextualIntelligence {
         };
 
         this.recommendations = [];
+        this.shownRecommendationIds = new Set(); // evita repetir o mesmo toast a cada ciclo
         this.isMonitoring = false;
 
         // Carrega estado salvo
@@ -23,6 +40,14 @@ class ContextualIntelligence {
 
     startMonitoring() {
         if (this.isMonitoring) return;
+
+        // O WindowManager é criado por js/main.js (módulo); aguarda até ele existir.
+        if (!window.windowManager || typeof window.windowManager.createWindow !== 'function') {
+            this._waitAttempts = (this._waitAttempts || 0) + 1;
+            if (this._waitAttempts <= 60) setTimeout(() => this.startMonitoring(), 500);
+            else console.warn('ContextualIntelligence: WindowManager não encontrado; monitoramento desativado.');
+            return;
+        }
         this.isMonitoring = true;
 
         // Monitora abertura de apps
@@ -72,6 +97,7 @@ class ContextualIntelligence {
     }
 
     async onAppOpened(appType) {
+        appType = String(appType || '');
         // Recomendações imediatas baseadas no contexto
         const recommendations = [];
 
@@ -154,9 +180,10 @@ class ContextualIntelligence {
     }
 
     async analyzeAndRecommend() {
+        if (!window.windowManager?.windows) return;
         const openApps = Array.from(window.windowManager.windows.values())
             .filter(w => !w.minimized)
-            .map(w => w.appType);
+            .map(w => String(w.appType || ''));
 
         // Detecta projeto em andamento
         if (openApps.length >= 3) {
@@ -307,7 +334,7 @@ class ContextualIntelligence {
         const usedApps = new Set(
             this.userBehavior.actionsPerformed
                 .filter(a => a.type === 'app_opened')
-                .map(a => a.appType)
+                .map(a => String(a.appType || ''))
         );
 
         return allApps.filter(app => !Array.from(usedApps).some(used => used.includes(app)));
@@ -326,12 +353,15 @@ class ContextualIntelligence {
     getOpenQualityApps() {
         const qualityAppTypes = ['pdca', 'ishikawa', 'ncr', '5w2h', 'checklist'];
 
+        if (!window.windowManager?.windows) return [];
         return Array.from(window.windowManager.windows.values())
-            .filter(w => !w.minimized && qualityAppTypes.some(q => w.appType.includes(q)))
+            .filter(w => !w.minimized && qualityAppTypes.some(q => String(w.appType || '').includes(q)))
             .map(w => w.appType);
     }
 
     recommend(recommendation) {
+        // Recomendações periódicas (a cada 30s / 5min) só aparecem uma vez por sessão.
+        if (this.shownRecommendationIds.has(recommendation.id)) return;
         this.recommendations.push(recommendation);
         this.showRecommendations([recommendation]);
     }
@@ -347,11 +377,14 @@ class ContextualIntelligence {
 
     showRecommendationToast(rec) {
         // Verifica se já foi dispensada
-        const dismissed = JSON.parse(localStorage.getItem('pmos_dismissed_recommendations') || '[]');
-        if (dismissed.includes(rec.id)) return;
+        const dismissed = readJSONStorage('pmos_dismissed_recommendations', []);
+        if (Array.isArray(dismissed) && dismissed.includes(rec.id)) return;
+        if (document.querySelector(`.pmos-recommendation-toast[data-rec-id="${rec.id}"]`)) return;
+        this.shownRecommendationIds.add(rec.id);
 
         const toast = document.createElement('div');
         toast.className = `pmos-recommendation-toast priority-${rec.priority}`;
+        toast.dataset.recId = rec.id;
         toast.innerHTML = `
       <div class="rec-icon">${rec.icon}</div>
       <div class="rec-content">
@@ -366,7 +399,11 @@ class ContextualIntelligence {
 
         // Event listeners
         toast.querySelector('[data-action="execute"]').onclick = () => {
-            rec.action();
+            try {
+                rec.action();
+            } catch (e) {
+                console.error('Erro ao executar recomendação:', e);
+            }
             toast.remove();
         };
 
@@ -397,9 +434,10 @@ class ContextualIntelligence {
     }
 
     dismissRecommendation(recId) {
-        const dismissed = JSON.parse(localStorage.getItem('pmos_dismissed_recommendations') || '[]');
-        dismissed.push(recId);
-        localStorage.setItem('pmos_dismissed_recommendations', JSON.stringify(dismissed));
+        const stored = readJSONStorage('pmos_dismissed_recommendations', []);
+        const dismissed = Array.isArray(stored) ? stored : [];
+        if (!dismissed.includes(recId)) dismissed.push(recId);
+        try { localStorage.setItem('pmos_dismissed_recommendations', JSON.stringify(dismissed)); } catch (e) { /* armazenamento indisponível */ }
     }
 
     // Ações específicas
@@ -445,18 +483,21 @@ class ContextualIntelligence {
 
     // Persistência
     saveState() {
-        localStorage.setItem('pmos_contextual_intelligence', JSON.stringify({
-            actionsPerformed: this.userBehavior.actionsPerformed.slice(-50), // últimas 50
-            timestamp: Date.now()
-        }));
+        try {
+            localStorage.setItem('pmos_contextual_intelligence', JSON.stringify({
+                actionsPerformed: this.userBehavior.actionsPerformed.slice(-50), // últimas 50
+                timestamp: Date.now()
+            }));
+        } catch (e) { /* armazenamento indisponível */ }
     }
 
     loadState() {
-        const saved = localStorage.getItem('pmos_contextual_intelligence');
+        let saved = null;
+        try { saved = localStorage.getItem('pmos_contextual_intelligence'); } catch (e) { saved = null; }
         if (saved) {
             try {
                 const data = JSON.parse(saved);
-                this.userBehavior.actionsPerformed = data.actionsPerformed || [];
+                this.userBehavior.actionsPerformed = Array.isArray(data.actionsPerformed) ? data.actionsPerformed : [];
             } catch (e) {
                 console.warn('Erro ao carregar estado do ContextualIntelligence', e);
             }
