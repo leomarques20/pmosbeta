@@ -85,6 +85,7 @@ export function openBPMNModeler() {
         appDataType: 'bpmn-modeler',
         modeler: null,
         currentXML: '',
+        pendingXML: null,
         fileId: null,
         isDirty: false,
 
@@ -96,11 +97,23 @@ export function openBPMNModeler() {
         /* Carrega dados de arquivo salvo */
         async loadData(dataString, fileMeta) {
             try {
-                const data = JSON.parse(dataString);
-                await this.importXML(data.xml || '');
-                this.fileId = fileMeta.id;
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                const xml = (data && typeof data.xml === 'string') ? data.xml : '';
+                if (!xml) {
+                    showNotification('Arquivo BPMN sem diagrama válido.', 3000);
+                    return;
+                }
+                if (this.modeler) {
+                    const ok = await this.importXML(xml);
+                    if (!ok) return;
+                } else {
+                    // Biblioteca ainda carregando: importa assim que o modeler estiver pronto.
+                    this.pendingXML = xml;
+                    this.currentXML = xml;
+                }
+                this.fileId = fileMeta?.id ?? null;
                 this.markClean();
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
+                if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
             } catch (err) {
                 console.error(err);
                 showNotification('Erro ao carregar XML', 3000);
@@ -134,7 +147,7 @@ export function openBPMNModeler() {
             const expBtn  = winData.element.querySelector(`#exportSvgBtn_${unique}`);
             const input   = winData.element.querySelector(`#importFileInput_${unique}`);
 
-            newBtn.onclick = () => this.createNewDiagram();
+            newBtn.onclick = () => this.createNewDiagram(true);
             impBtn.onclick = () => input.click();
             expBtn.onclick = () => this.exportSVG();
             input.onchange = (e) => {
@@ -149,7 +162,9 @@ export function openBPMNModeler() {
             setupAppToolbarActions(this);
 
             // Carrega biblioteca e instancia modeler
-            ensureBpmnLibrary(() => {
+            ensureBpmnLibrary(async () => {
+                // A janela pode ter sido fechada enquanto a biblioteca carregava
+                if (!window.windowManager.windows.has(this.winId)) return;
                 this.modeler = new BpmnJS({
                     container: `#bpmnCanvas_${unique}`,
                     keyboard: { bindTo: winData.element }
@@ -157,23 +172,35 @@ export function openBPMNModeler() {
 
                 // Observa alterações para auto-atualizar XML
                 this.modeler.on('commandStack.changed', async () => {
-                    const { xml } = await this.modeler.saveXML({ format: true });
-                    this.currentXML = xml;
-                    this.markDirty();
+                    if (!this.modeler) return;
+                    try {
+                        const { xml } = await this.modeler.saveXML({ format: true });
+                        this.currentXML = xml;
+                        this.markDirty();
+                    } catch (err) {
+                        console.error(err);
+                    }
                 });
 
-                // Cria diagrama inicial
-                this.createNewDiagram();
+                // Carrega arquivo pendente (aberto antes da lib estar pronta) ou cria diagrama inicial
+                if (this.pendingXML) {
+                    const xml = this.pendingXML;
+                    this.pendingXML = null;
+                    const wasDirty = this.isDirty;
+                    if (await this.importXML(xml) && !wasDirty) this.markClean();
+                } else {
+                    await this.createNewDiagram(false);
+                }
             });
         },
 
-        async createNewDiagram() {
+        async createNewDiagram(markAsDirty = true) {
             if (!this.modeler) return;
             try {
                 await this.modeler.createDiagram();
                 const { xml } = await this.modeler.saveXML({ format: true });
                 this.currentXML = xml;
-                this.markDirty();
+                if (markAsDirty) this.markDirty();
             } catch (err) {
                 console.error(err);
                 showNotification('Erro ao criar diagrama', 3000);
@@ -181,14 +208,16 @@ export function openBPMNModeler() {
         },
 
         async importXML(xml) {
-            if (!this.modeler) return;
+            if (!this.modeler) return false;
             try {
                 await this.modeler.importXML(xml || '');
                 this.currentXML = xml;
                 this.markDirty();
+                return true;
             } catch (err) {
                 console.error(err);
                 showNotification('Falha ao importar XML', 3000);
+                return false;
             }
         },
 
@@ -213,6 +242,7 @@ export function openBPMNModeler() {
 
         /* Limpeza ao fechar */
         cleanup() {
+            this.pendingXML = null;
             if (this.modeler) {
                 this.modeler.destroy();
                 this.modeler = null;

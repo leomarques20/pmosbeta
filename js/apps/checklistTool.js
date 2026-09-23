@@ -1,11 +1,16 @@
 import { generateId, showNotification } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
+// Escapa texto do usuário antes de inseri-lo via innerHTML
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 // Função de fábrica para criar a base das ferramentas da qualidade
 function createQualityToolWindow(toolName, appType, formHTML, listTitle, fileNameSuffix, formGridCols = 1) {
     const uniqueSuffix = generateId(appType);
     const winId = window.windowManager.createWindow(toolName, '', { width: '850px', height: '700px', appType: `quality-tool ${appType}` });
-    const winData = window.windowManager.windows.get(winId); if (!winData) return winId;
+    const winData = window.windowManager.windows.get(winId); if (!winData) return { winId, appState: null };
     const content = `
         <div class="app-toolbar"> ${getStandardAppToolbarHTML()} </div>
         <div class="quality-tool-content-area">
@@ -36,11 +41,13 @@ function createQualityToolWindow(toolName, appType, formHTML, listTitle, fileNam
         getData: function() { return this.items; },
         loadData: function(dataString, fileMeta) { 
             try {
-                const data = JSON.parse(dataString);
-                this.items = Array.isArray(data) ? data : []; 
-                this.fileId = fileMeta.id;
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                if (!Array.isArray(data)) { showNotification(`Formato de arquivo inválido para ${toolName}.`, 3000); return; }
+                this.items = data.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+                    .map(item => ({ ...item, id: item.id != null ? String(item.id) : generateId(appType) }));
+                this.fileId = fileMeta?.id ?? null;
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
                 this.renderList(); 
                 this.clearForm();
             } catch(e) {
@@ -90,10 +97,11 @@ function createQualityToolWindow(toolName, appType, formHTML, listTitle, fileNam
 export function openChecklistTool() {
     const formHTML = `<input type="text" id="checklistItemInput" class="app-input" placeholder="Item do Checklist (ex: Verificar documentação X)"> <select id="checklistCategoryInput" class="app-select"><option value="">Categoria (Opcional)</option> <option value="documentacao">Documentação</option><option value="processo">Processo</option> <option value="seguranca">Segurança</option><option value="outro">Outro</option></select><select id="checklistStatusInput" class="app-select"><option value="pendente">Pendente</option> <option value="conforme">Conforme</option> <option value="nao_conforme">Não Conforme</option> <option value="na">N/A</option></select><input type="text" id="checklistResponsibleInput" class="app-input" placeholder="Responsável (Opcional)"><textarea id="checklistNotesInput" class="app-textarea" placeholder="Observações..." style="min-height:60px; grid-column: span 2;"></textarea>`;
     const { winId, appState } = createQualityToolWindow('Checklist', 'checklist', formHTML, 'Itens do Checklist', 'checklist', 2);
+    if (!appState) return winId;
     
     appState.collectFormData = function() { const itemText = this.formArea.querySelector('#checklistItemInput').value.trim(); if (!itemText) { showNotification("Descreva o item.", 2000); return null;} return { text: itemText, category: this.formArea.querySelector('#checklistCategoryInput').value, status: this.formArea.querySelector('#checklistStatusInput').value, responsible: this.formArea.querySelector('#checklistResponsibleInput').value.trim(), notes: this.formArea.querySelector('#checklistNotesInput').value.trim() }; };
     appState.populateForm = function(itemData) { this.formArea.querySelector('#checklistItemInput').value = itemData.text || ''; this.formArea.querySelector('#checklistCategoryInput').value = itemData.category || ''; this.formArea.querySelector('#checklistStatusInput').value = itemData.status || 'pendente'; this.formArea.querySelector('#checklistResponsibleInput').value = itemData.responsible || ''; this.formArea.querySelector('#checklistNotesInput').value = itemData.notes || ''; };
-    appState.renderListItem = function(item, index) { const icons = {pendente: 'fa-clock', conforme: 'fa-check-circle', nao_conforme: 'fa-times-circle', na: 'fa-minus-circle'}; const iconClass = icons[item.status] || 'fa-question-circle'; return `<li> <div class="item-details"> <strong><i class="fas ${iconClass}" style="margin-right:8px; color: ${item.status === 'conforme' ? 'green' : (item.status === 'nao_conforme' ? 'red' : 'var(--secondary-text-color)')};"></i>${item.text}</strong> <small>Status: ${item.status} ${item.category ? `| Cat: ${item.category}` : ''} ${item.responsible ? `| Resp: ${item.responsible}`: ''}</small> ${item.notes ? `<p><i>Obs: ${item.notes}</i></p>` : ''} </div> <div class="item-actions"> <button class="app-button secondary action-button" data-action="edit" data-index="${index}"><i class="fas fa-edit"></i></button> <button class="app-button danger action-button" data-action="delete" data-index="${index}"><i class="fas fa-trash"></i></button> </div> </li>`; };
+    appState.renderListItem = function(item, index) { const icons = {pendente: 'fa-clock', conforme: 'fa-check-circle', nao_conforme: 'fa-times-circle', na: 'fa-minus-circle'}; const iconClass = icons[item.status] || 'fa-question-circle'; return `<li> <div class="item-details"> <strong><i class="fas ${iconClass}" style="margin-right:8px; color: ${item.status === 'conforme' ? 'green' : (item.status === 'nao_conforme' ? 'red' : 'var(--secondary-text-color)')};"></i>${escapeHtml(item.text)}</strong> <small>Status: ${escapeHtml(item.status)} ${item.category ? `| Cat: ${escapeHtml(item.category)}` : ''} ${item.responsible ? `| Resp: ${escapeHtml(item.responsible)}`: ''}</small> ${item.notes ? `<p><i>Obs: ${escapeHtml(item.notes)}</i></p>` : ''} </div> <div class="item-actions"> <button class="app-button secondary action-button" data-action="edit" data-index="${index}"><i class="fas fa-edit"></i></button> <button class="app-button danger action-button" data-action="delete" data-index="${index}"><i class="fas fa-trash"></i></button> </div> </li>`; };
     
     return winId;
 }

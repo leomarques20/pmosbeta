@@ -1,30 +1,10 @@
-import { showNotification } from '../main.js';
-// Importa a função de fábrica do arquivo do checklist
-import { openChecklistTool } from './checklistTool.js'; // Apenas para importar a função de fábrica
+import { showNotification, generateId } from '../main.js';
+import { getStandardAppToolbarHTML as getToolbar, initializeFileState, setupAppToolbarActions as setupActions } from './app.js';
 
-// Re-exportamos a função de fábrica para que outros possam usá-la.
-// Uma abordagem melhor seria ter um arquivo `qualityToolFactory.js`, mas para manter a estrutura, faremos assim.
-function createQualityToolWindow(toolName, appType, formHTML, listTitle, fileNameSuffix, formGridCols = 1) {
-    const winId = openChecklistTool(); // Isso é um hack, precisamos da função real.
-    const winData = window.windowManager.windows.get(winId);
-    if(winData) {
-        // Adaptar a janela já criada
-        window.windowManager.updateWindowTitle(winId, toolName);
-        const formArea = winData.element.querySelector('[id^=formArea_]');
-        formArea.innerHTML = formHTML;
-        formArea.style.gridTemplateColumns = `repeat(${formGridCols}, 1fr)`;
-        winData.element.querySelector('[id^=formTitle_]').textContent = `Novo: ${toolName}`;
-        winData.element.querySelector('h4 > i.fa-list-ul').nextSibling.textContent = ` ${listTitle}`;
-        
-        const appState = winData.currentAppInstance;
-        appState.appDataType = appType;
-        appState.originalToolName = toolName;
-        initializeFileState(appState, toolName, `novo_${fileNameSuffix}.${fileNameSuffix}`, appType);
-        return { winId, appState };
-    }
-    return null; // Falha
+// Escapa texto do usuário antes de inseri-lo via innerHTML
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
-
 
 export function openNCRTool() {
     const formHTML = `<input type="text" id="ncrDescriptionInput" class="app-input" placeholder="Descrição da Não Conformidade" style="grid-column: span 2;"> <input type="date" id="ncrDateInput" class="app-input" title="Data da Ocorrência"> <input type="text" id="ncrSourceInput" class="app-input" placeholder="Origem/Processo Afetado"> <select id="ncrSeverityInput" class="app-select"><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option><option value="critica">Crítica</option></select> <input type="text" id="ncrReportedByInput" class="app-input" placeholder="Reportado Por"> <textarea id="ncrEvidenceInput" class="app-textarea" placeholder="Evidências..." style="min-height:60px; grid-column: span 2;"></textarea> <textarea id="ncrImmediateActionInput" class="app-textarea" placeholder="Ação Imediata Tomada" style="min-height:60px;"></textarea> <textarea id="ncrCorrectiveActionInput" class="app-textarea" placeholder="Ação Corretiva Proposta" style="min-height:60px;"></textarea> <input type="date" id="ncrCorrectiveActionDeadlineInput" class="app-input" title="Prazo Ação Corretiva"> <select id="ncrStatusInput" class="app-select"><option value="aberta">Aberta</option><option value="em_analise">Em Análise</option><option value="acao_implementada">Ação Implementada</option><option value="verificacao_eficacia">Verificando Eficácia</option><option value="fechada">Fechada</option></select>`;
@@ -32,6 +12,7 @@ export function openNCRTool() {
     // Como a função de fábrica não está disponível de forma limpa, vamos recriar a lógica aqui
     // Esta é uma correção para o problema de dependência circular.
     const { winId, appState } = createCustomQualityToolWindow('Relatório de Não Conformidade', 'ncr', formHTML, 'Não Conformidades Registradas', 'ncr', 2);
+    if (!appState) return winId;
 
     appState.collectFormData = function() {
         const desc = this.formArea.querySelector('#ncrDescriptionInput').value.trim();
@@ -70,10 +51,10 @@ export function openNCRTool() {
         const severityColors = { baixa: 'green', media: 'orange', alta: 'red', critica: 'darkred' };
         return `<li>
             <div class="item-details">
-                <strong><i class="fas fa-exclamation-triangle" style="margin-right:8px; color:${severityColors[item.severity] || 'var(--secondary-text-color)'};"></i>${item.description}</strong>
-                <small>Severidade: ${item.severity}, Data: ${item.date || 'N/D'}, Status: ${item.status}</small>
-                <small>Origem: ${item.source || 'N/I'} | Reportado por: ${item.reportedBy || 'N/I'}</small>
-                ${item.correctiveAction ? `<p><i>Ação: ${item.correctiveAction.substring(0,100)}...</i></p>` : ''}
+                <strong><i class="fas fa-exclamation-triangle" style="margin-right:8px; color:${severityColors[item.severity] || 'var(--secondary-text-color)'};"></i>${escapeHtml(item.description)}</strong>
+                <small>Severidade: ${escapeHtml(item.severity)}, Data: ${escapeHtml(item.date || 'N/D')}, Status: ${escapeHtml(item.status)}</small>
+                <small>Origem: ${escapeHtml(item.source || 'N/I')} | Reportado por: ${escapeHtml(item.reportedBy || 'N/I')}</small>
+                ${item.correctiveAction ? `<p><i>Ação: ${escapeHtml(String(item.correctiveAction).substring(0,100))}...</i></p>` : ''}
             </div>
             <div class="item-actions">
                 <button class="app-button secondary action-button" data-action="edit" data-index="${index}"><i class="fas fa-edit"></i></button>
@@ -86,9 +67,6 @@ export function openNCRTool() {
 }
 
 // Uma implementação autônoma da função de fábrica para evitar dependência circular.
-import { generateId } from '../main.js';
-import { getStandardAppToolbarHTML as getToolbar, initializeFileState, setupAppToolbarActions as setupActions } from './app.js';
-
 function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, fileNameSuffix, formGridCols = 1) {
     const uniqueSuffix = generateId(appType);
     const winId = window.windowManager.createWindow(toolName, '', { width: '850px', height: '700px', appType: `quality-tool ${appType}` });
@@ -123,11 +101,13 @@ function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, f
         getData: function() { return this.items; },
         loadData: function(dataString, fileMeta) { 
             try {
-                const data = JSON.parse(dataString);
-                this.items = Array.isArray(data) ? data : []; 
-                this.fileId = fileMeta.id;
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                if (!Array.isArray(data)) { showNotification(`Formato de arquivo inválido para ${toolName}.`, 3000); return; }
+                this.items = data.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+                    .map(item => ({ ...item, id: item.id != null ? String(item.id) : generateId(appType) }));
+                this.fileId = fileMeta?.id ?? null;
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
                 this.renderList(); 
                 this.clearForm();
             } catch(e) {
