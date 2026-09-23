@@ -27,7 +27,24 @@ async function requestWithCookies(client, config, jar, url) {
     return response;
 }
 
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS'
+};
+
 exports.handler = async function (event, context) {
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 204, headers: CORS_HEADERS, body: '' };
+    }
+    if (event.httpMethod !== 'GET') {
+        return {
+            statusCode: 405,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: 'Method not allowed' })
+        };
+    }
+
     const jar = new CookieJar();
     const client = axios.create({
         withCredentials: true,
@@ -44,6 +61,9 @@ exports.handler = async function (event, context) {
     try {
         // 1. Access Login Page
         const response = await requestWithCookies(client, { url: SEI_LOGIN_URL, method: 'GET' }, jar, SEI_LOGIN_URL);
+        if (response.status >= 400) {
+            throw new Error(`SEI respondeu HTTP ${response.status} na página de login`);
+        }
 
         // Decode response
         const contentType = response.headers['content-type'] || '';
@@ -53,27 +73,30 @@ exports.handler = async function (event, context) {
 
         const $ = cheerio.load(html);
 
-        // 2. Extract Captcha URL
-        const $captchaImg = $('#lblCaptcha');
+        // 2. Extract Captcha URL (o id pode estar na própria <img> ou num <label> que a envolve)
+        let $captchaImg = $('#lblCaptcha');
+        if (!$captchaImg.is('img')) {
+            $captchaImg = $('#lblCaptcha img, #imgCaptcha, img[src*="captcha" i]').first();
+        }
         const captchaSrc = $captchaImg.attr('src');
 
         let captchaBase64 = null;
+        let captchaMime = 'image/png';
 
         if (captchaSrc) {
-            let captchaUrl = captchaSrc;
-            if (!captchaUrl.startsWith('http')) {
-                if (captchaUrl.startsWith('/')) {
-                    captchaUrl = SEI_BASE_URL + captchaUrl;
-                } else {
-                    // Relative to current path (usually /sip/)
-                    captchaUrl = SEI_BASE_URL + '/sip/' + captchaUrl;
-                }
-            }
+            // Resolve relativo à página de login (normalmente /sip/)
+            const captchaUrl = new URL(captchaSrc, SEI_LOGIN_URL).toString();
 
-            // 3. Fetch Captcha Image
+            // 3. Fetch Captcha Image (mesma sessão/cookie jar do login)
             try {
                 const captchaResponse = await requestWithCookies(client, { url: captchaUrl, method: 'GET', responseType: 'arraybuffer' }, jar, captchaUrl);
-                captchaBase64 = Buffer.from(captchaResponse.data).toString('base64');
+                if (captchaResponse.status >= 200 && captchaResponse.status < 300) {
+                    captchaBase64 = Buffer.from(captchaResponse.data).toString('base64');
+                    const ct = String(captchaResponse.headers['content-type'] || '').split(';')[0].trim();
+                    if (ct.startsWith('image/')) captchaMime = ct;
+                } else {
+                    console.error("Error fetching captcha image: HTTP", captchaResponse.status);
+                }
             } catch (err) {
                 console.error("Error fetching captcha image:", err.message);
             }
@@ -97,15 +120,7 @@ exports.handler = async function (event, context) {
         let loginUrl = SEI_LOGIN_URL;
         const formAction = $('form').attr('action');
         if (formAction) {
-            if (!formAction.startsWith('http')) {
-                if (formAction.startsWith('/')) {
-                    loginUrl = SEI_BASE_URL + formAction;
-                } else {
-                    loginUrl = SEI_BASE_URL + '/sip/' + formAction;
-                }
-            } else {
-                loginUrl = formAction;
-            }
+            loginUrl = new URL(formAction, SEI_LOGIN_URL).toString();
         }
 
         // Preserve query params if action is bare
@@ -114,8 +129,14 @@ exports.handler = async function (event, context) {
         }
 
         // 6. Get Cookies
+        // Inclui todos os cookies do SEI (ex.: definidos na resposta do captcha com outro path),
+        // priorizando os que valem para a URL de login, para que o login use a MESMA sessão do captcha.
         const cookies = {};
-        const storedCookies = await jar.getCookies(SEI_LOGIN_URL);
+        const serialized = await jar.serialize();
+        (serialized.cookies || []).forEach(c => {
+            if (c.domain && SEI_BASE_URL.endsWith(c.domain.replace(/^\./, ''))) cookies[c.key] = c.value;
+        });
+        const storedCookies = await jar.getCookies(loginUrl);
         storedCookies.forEach(c => {
             cookies[c.key] = c.value;
         });
@@ -123,11 +144,13 @@ exports.handler = async function (event, context) {
         return {
             statusCode: 200,
             headers: {
+                ...CORS_HEADERS,
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+                'Cache-Control': 'no-store'
             },
             body: JSON.stringify({
                 captcha_image: captchaBase64,
+                captcha_mime: captchaMime,
                 cookies: cookies,
                 hidden_fields: hiddenFields,
                 login_url: loginUrl
@@ -135,11 +158,11 @@ exports.handler = async function (event, context) {
         };
 
     } catch (error) {
-        console.error("SEI Auth Challenge Error:", error);
+        console.error("SEI Auth Challenge Error:", error.message);
         return {
-            statusCode: 500,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ error: error.message })
+            statusCode: 502,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ error: 'Não foi possível obter o captcha do SEI.' })
         };
     }
 };

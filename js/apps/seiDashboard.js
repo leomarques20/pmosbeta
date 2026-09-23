@@ -6,18 +6,43 @@ import { openMemoGenerator } from './sei/memoGenerator.js';
 // URL relativa para funcionar tanto local quanto no Netlify
 const API_BASE = '/api/sei';
 
+// Escapa texto vindo do SEI / localStorage antes de interpolar em HTML
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Só permite links http(s) (evita javascript: em href)
+function safeUrl(value) {
+    try {
+        const url = new URL(String(value || ''), window.location.href);
+        return (url.protocol === 'http:' || url.protocol === 'https:') ? url.toString() : '#';
+    } catch (e) {
+        return '#';
+    }
+}
+
+// Só permite cores simples (hex / nome) em atributos style
+function safeColor(value) {
+    const color = String(value || '');
+    return /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/.test(color) ? color : '#6c757d';
+}
+
 async function fetchCaptcha() {
     const res = await fetch(`/.netlify/functions/sei-auth-challenge`);
     if (!res.ok) throw new Error("Falha ao carregar Captcha");
     return await res.json();
 }
 
-async function fetchProcessos(usuario, senha, orgao, captcha) {
+async function fetchProcessos(usuario, senha, orgao, captcha, cookies, hiddenFields, loginUrl) {
+    // Envia os cookies/campos da sessão em que o captcha foi gerado, para o login usar a MESMA sessão
     const res = await fetch(`/.netlify/functions/sei-login-puppeteer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            usuario, senha, orgao, captcha
+            usuario, senha, orgao, captcha,
+            cookies: cookies || {},
+            hidden_fields: hiddenFields || {},
+            login_url: loginUrl || ''
         })
     });
 
@@ -207,6 +232,7 @@ export function openSeiDashboard() {
     let currentCookies = {};
     let currentHiddenFields = {};
     let currentLoginUrl = '';
+    let sessionCookies = {}; // Cookies da sessão autenticada (retornados pelo login), só em memória
 
     // Load saved user
     const savedUser = localStorage.getItem('pmos_sei_user');
@@ -218,16 +244,20 @@ export function openSeiDashboard() {
         els.captchaPlaceholder.style.display = 'block';
         els.captchaPlaceholder.textContent = 'Carregando...';
         els.captchaInput.value = '';
+        currentCookies = {};
+        currentHiddenFields = {};
+        currentLoginUrl = '';
 
         try {
             const data = await fetchCaptcha();
+            currentCookies = data.cookies || {};
+            currentHiddenFields = data.hidden_fields || {};
+            currentLoginUrl = data.login_url || '';
             if (data.captcha_image) {
-                els.captchaImg.src = `data:image/png;base64,${data.captcha_image}`;
+                const mime = /^image\/[a-z0-9.+-]+$/i.test(data.captcha_mime || '') ? data.captcha_mime : 'image/png';
+                els.captchaImg.src = `data:${mime};base64,${data.captcha_image}`;
                 els.captchaImg.style.display = 'block';
                 els.captchaPlaceholder.style.display = 'none';
-                currentCookies = data.cookies;
-                currentHiddenFields = data.hidden_fields;
-                currentLoginUrl = data.login_url;
             } else {
                 els.captchaPlaceholder.textContent = 'Sem Captcha';
             }
@@ -262,7 +292,7 @@ export function openSeiDashboard() {
 
         // Timeline Badge
         let timelineBadge = '';
-        if (proc.daysElapsed !== null) {
+        if (proc.daysElapsed != null) {
             let badgeColor = '#28a745'; // Green (recent)
             if (proc.daysElapsed > 30) badgeColor = '#ffc107'; // Yellow (warning)
             if (proc.daysElapsed > 60) badgeColor = '#dc3545'; // Red (old)
@@ -273,10 +303,10 @@ export function openSeiDashboard() {
         const note = appState ? appState.getNote(proc.protocolo) : '';
         const noteSection = `
             <div style="margin-top: 10px; padding: 8px; background: var(--input-bg); border-radius: 4px; display: ${note ? 'block' : 'none'};" id="noteDisplay_${proc.protocolo.replace(/\D/g, '')}">
-                <i class="fas fa-sticky-note" style="color: var(--accent-color); margin-right: 5px;"></i> <span style="font-size: 0.9em; font-style: italic;">${note}</span>
+                <i class="fas fa-sticky-note" style="color: var(--accent-color); margin-right: 5px;"></i> <span style="font-size: 0.9em; font-style: italic;">${escapeHtml(note)}</span>
             </div>
             <div style="margin-top: 10px; display: none;" id="noteEdit_${proc.protocolo.replace(/\D/g, '')}">
-                <textarea class="app-textarea" rows="2" placeholder="Adicionar nota pessoal..." style="font-size: 0.9em;">${note}</textarea>
+                <textarea class="app-textarea" rows="2" placeholder="Adicionar nota pessoal..." style="font-size: 0.9em;">${escapeHtml(note)}</textarea>
                 <button class="app-btn-small" style="margin-top: 5px;">Salvar Nota</button>
             </div>
         `;
@@ -286,7 +316,7 @@ export function openSeiDashboard() {
         if (proc.deadline) {
             const color = proc.deadline.isOverdue ? '#dc3545' : (proc.deadline.isUrgent ? '#ffc107' : '#17a2b8');
             const icon = proc.deadline.isOverdue ? 'fa-exclamation-circle' : 'fa-hourglass-half';
-            deadlineAlert = `<span style="font-size: 0.75em; background: ${color}; color: #fff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;" title="Prazo detectado: ${proc.deadline.date}"><i class="fas ${icon}"></i> ${proc.deadline.date}</span>`;
+            deadlineAlert = `<span style="font-size: 0.75em; background: ${color}; color: #fff; padding: 2px 6px; border-radius: 10px; margin-left: 8px;" title="Prazo detectado: ${escapeHtml(proc.deadline.date)}"><i class="fas ${icon}"></i> ${escapeHtml(proc.deadline.date)}</span>`;
         }
 
         card.innerHTML = `
@@ -297,40 +327,40 @@ export function openSeiDashboard() {
                     </div>
                     <div style="flex-grow: 1;">
                         <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
-                            <a href="${proc.link_sei}" target="_blank" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${proc.protocolo}</a>
+                            <a href="${escapeHtml(safeUrl(proc.link_sei))}" target="_blank" rel="noopener noreferrer" style="font-weight: bold; color: var(--accent-color); text-decoration: none; font-size: 1.1em;">${escapeHtml(proc.protocolo)}</a>
                             ${timelineBadge}
                             ${deadlineAlert}
                             ${proc.priority === 'high' ? '<span style="font-size: 0.7em; background: #dc3545; color: white; padding: 1px 4px; border-radius: 3px;">URGENTE</span>' : ''}
-                            <span style="font-size: 0.7em; background: var(--secondary-bg); color: var(--text-color); padding: 1px 6px; border-radius: 10px; border: 1px solid var(--separator-color);">${proc.category || 'Geral'}</span>
+                            <span style="font-size: 0.7em; background: var(--secondary-bg); color: var(--text-color); padding: 1px 6px; border-radius: 10px; border: 1px solid var(--separator-color);">${escapeHtml(proc.category || 'Geral')}</span>
                             ${appState ? appState.getProcessTags(proc.protocolo).map(tag =>
-            `<span style="font-size: 0.65em; background: ${tag.color}; color: white; padding: 2px 6px; border-radius: 10px; font-weight: 600; cursor: pointer;" title="Tag: ${tag.name}" data-tag-id="${Object.keys(appState.tags).find(id => appState.tags[id] === tag)}">
-                                    <i class="fas fa-tag" style="font-size: 0.9em;"></i> ${tag.name}
+            `<span style="font-size: 0.65em; background: ${safeColor(tag.color)}; color: white; padding: 2px 6px; border-radius: 10px; font-weight: 600; cursor: pointer;" title="Tag: ${escapeHtml(tag.name)}" data-tag-id="${escapeHtml(Object.keys(appState.tags).find(id => appState.tags[id] === tag))}">
+                                    <i class="fas fa-tag" style="font-size: 0.9em;"></i> ${escapeHtml(tag.name)}
                                 </span>`
         ).join('') : ''}
                         </div>
                         <div style="font-size: 0.9em; color: var(--text-color); margin-top: 6px; font-weight: 500; line-height: 1.4;">
-                            ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal; font-size: 0.9em;">${proc.tipo}</span><br>` : ''}
-                            <span title="Resumo Inteligente: ${proc.smartSummary}">
+                            ${proc.tipo ? `<span style="color: var(--secondary-text-color); font-weight: normal; font-size: 0.9em;">${escapeHtml(proc.tipo)}</span><br>` : ''}
+                            <span title="Resumo Inteligente: ${escapeHtml(proc.smartSummary)}">
                                 <i class="fas fa-magic" style="font-size: 0.8em; color: var(--accent-color); margin-right: 4px;" title="Resumo gerado por IA"></i>
-                                ${proc.smartSummary}
+                                ${escapeHtml(proc.smartSummary)}
                             </span>
                             <div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 4px; display: none;" class="full-description">
-                                ${proc.descricao || 'Sem descrição detalhada'}
+                                ${escapeHtml(proc.descricao || 'Sem descrição detalhada')}
                             </div>
                         </div>
                     </div>
                 </div>
                 <div style="text-align: right; min-width: 100px;">
-                    <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${proc.unidade}</span>
-                    ${proc.data ? `<div style="font-size: 0.8em; color: var(--secondary-text-color); margin-top: 4px;">${proc.data}</div>` : ''}
+                    <span style="font-size: 0.8em; background: var(--button-bg); padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${escapeHtml(proc.unidade)}</span>
+                    ${proc.data ? `<div style="font-size: 0.8em; color: var(--secondary-text-color); margin-top: 4px;">${escapeHtml(proc.data)}</div>` : ''}
                 </div>
             </div>
             
-            ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px; margin-left: 25px;"><strong>Interessados:</strong> ${proc.interessados}</div>` : ''}
-            ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px; margin-left: 25px;"><strong>Atribuído a:</strong> ${proc.atribuido_a}</div>` : ''}
+            ${proc.interessados ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 8px; margin-left: 25px;"><strong>Interessados:</strong> ${escapeHtml(proc.interessados)}</div>` : ''}
+            ${proc.atribuido_a ? `<div style="font-size: 0.85em; color: var(--secondary-text-color); margin-top: 2px; margin-left: 25px;"><strong>Atribuído a:</strong> ${escapeHtml(proc.atribuido_a)}</div>` : ''}
             ${appState && appState.getProcessAssignee(proc.protocolo) ?
                 `<div style="font-size: 0.85em; color: var(--accent-color); margin-top: 2px; margin-left: 25px;">
-                    <i class="fas fa-user-check"></i> <strong>Responsável:</strong> ${appState.teamMembers.find(m => m.id === appState.getProcessAssignee(proc.protocolo))?.name || 'Desconhecido'}
+                    <i class="fas fa-user-check"></i> <strong>Responsável:</strong> ${escapeHtml(appState.teamMembers.find(m => m.id === appState.getProcessAssignee(proc.protocolo))?.name || 'Desconhecido')}
                 </div>` : ''}
 
             ${noteSection}
@@ -357,12 +387,20 @@ export function openSeiDashboard() {
                 <button class="app-btn-small" id="btnNote_${proc.protocolo.replace(/\D/g, '')}" style="font-size: 0.8em; padding: 4px 8px;">
                     <i class="fas fa-sticky-note"></i> Nota
                 </button>
-                <button class="app-btn-small" onclick="window.open('${proc.link_sei}', '_blank')" style="font-size: 0.8em; padding: 4px 8px;">
+                <button class="app-btn-small" data-role="open-sei" style="font-size: 0.8em; padding: 4px 8px;">
                     <i class="fas fa-external-link-alt"></i> Abrir
                 </button>
             </div>
         `;
         container.appendChild(card);
+
+        const btnOpen = card.querySelector('[data-role="open-sei"]');
+        if (btnOpen) {
+            btnOpen.onclick = () => {
+                const url = safeUrl(proc.link_sei);
+                if (url !== '#') window.open(url, '_blank', 'noopener');
+            };
+        }
 
         // Checkbox Logic
         const checkbox = card.querySelector(`#cb_${proc.protocolo.replace(/\D/g, '')}`);
@@ -415,10 +453,10 @@ export function openSeiDashboard() {
         const btnNote = card.querySelector(`#btnNote_${proc.protocolo.replace(/\D/g, '')}`);
         const noteDisplay = card.querySelector(`#noteDisplay_${proc.protocolo.replace(/\D/g, '')}`);
         const noteEdit = card.querySelector(`#noteEdit_${proc.protocolo.replace(/\D/g, '')}`);
-        const noteSaveBtn = noteEdit.querySelector('button');
-        const noteTextarea = noteEdit.querySelector('textarea');
+        const noteSaveBtn = noteEdit ? noteEdit.querySelector('button') : null;
+        const noteTextarea = noteEdit ? noteEdit.querySelector('textarea') : null;
 
-        if (btnNote) {
+        if (btnNote && noteEdit && noteDisplay) {
             btnNote.onclick = () => {
                 if (noteEdit.style.display === 'none') {
                     noteEdit.style.display = 'block';
@@ -431,7 +469,7 @@ export function openSeiDashboard() {
             };
         }
 
-        if (noteSaveBtn && appState) {
+        if (noteSaveBtn && noteTextarea && noteDisplay && appState) {
             noteSaveBtn.onclick = () => {
                 const newNote = noteTextarea.value.trim();
                 appState.saveNote(proc.protocolo, newNote);
@@ -487,7 +525,9 @@ export function openSeiDashboard() {
     // Actually, let's just append it to the form container for now or find a better place.
     // The toolbar is created in `content` string. Let's find a place to inject it.
     // We can append it to `els.syncBtn.parentNode` if it exists, or just after `els.syncBtn`.
-    els.syncBtn.parentNode.insertBefore(showMonitoredBtn, els.syncBtn.nextSibling);
+    if (els.syncBtn && els.syncBtn.parentNode) {
+        els.syncBtn.parentNode.insertBefore(showMonitoredBtn, els.syncBtn.nextSibling);
+    }
 
     // Batch Actions Toolbar
     const batchToolbar = document.createElement('div');
@@ -500,7 +540,8 @@ export function openSeiDashboard() {
         <button class="app-btn-small" id="batchExport_${uniqueSuffix}"><i class="fas fa-file-pdf"></i> Exportar Relatório</button>
         <button class="app-btn-small" style="background: transparent; border: 1px solid var(--text-color); color: var(--text-color);" id="batchClear_${uniqueSuffix}">Cancelar</button>
     `;
-    winData.element.querySelector('.sei-dashboard-container').appendChild(batchToolbar);
+    const dashboardContainer = winData.element.querySelector('.sei-dashboard-container') || winData.element.querySelector('.window-content');
+    if (dashboardContainer) dashboardContainer.appendChild(batchToolbar);
 
     const appState = {
         winId,
@@ -581,8 +622,8 @@ export function openSeiDashboard() {
                 batchAssignBtn.onclick = () => this.batchAssignProcesses();
             }
 
-            // Initial Load
-            this.fetchProcessos();
+            // Initial Load (silencioso: a senha nunca vem preenchida)
+            this.fetchProcessos(true);
         },
 
         toggleSelection: function (protocolo) {
@@ -614,6 +655,10 @@ export function openSeiDashboard() {
             if (selected.length === 0) return;
 
             const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                showNotification('Permita pop-ups para exportar o relatório.', 3000);
+                return;
+            }
             printWindow.document.write(`
                 <html>
                 <head>
@@ -643,11 +688,11 @@ export function openSeiDashboard() {
                         <tbody>
                             ${selected.map(p => `
                                 <tr>
-                                    <td>${p.protocolo}</td>
-                                    <td>${p.tipo || '-'}</td>
-                                    <td>${p.descricao || '-'}</td>
-                                    <td>${p.unidade}</td>
-                                    <td class="${p.priority === 'high' ? 'urgent' : ''}">${p.priority.toUpperCase()}</td>
+                                    <td>${escapeHtml(p.protocolo)}</td>
+                                    <td>${escapeHtml(p.tipo || '-')}</td>
+                                    <td>${escapeHtml(p.descricao || '-')}</td>
+                                    <td>${escapeHtml(p.unidade)}</td>
+                                    <td class="${p.priority === 'high' ? 'urgent' : ''}">${escapeHtml(String(p.priority || '').toUpperCase())}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -697,12 +742,10 @@ export function openSeiDashboard() {
             modal.querySelector(`#qvHistory_${uniqueSuffix}`).innerHTML = '<div class="spinner"></div> Carregando...';
 
             try {
-                const user = localStorage.getItem('pmos_sei_user');
-                // We need password too, but storing it in localstorage is unsafe. 
-                // Ideally we should use the session cookie, but for now let's ask user to ensure they are logged in or use the inputs if available.
-                // Assuming inputs are still populated or we have a token.
-                // For this demo, let's use the inputs from the form if visible, or fail gracefully.
-                const pass = els.pass.value.trim();
+                const user = els.user.value.trim() || localStorage.getItem('pmos_sei_user');
+                // A senha nunca é persistida: usa a sessão autenticada (cookies do login) e,
+                // como fallback, a senha ainda digitada no formulário.
+                const pass = els.pass.value;
                 const orgao = els.orgao.value.trim();
 
                 const response = await fetch('/api/sei/detalhes', {
@@ -713,25 +756,29 @@ export function openSeiDashboard() {
                         senha: pass,
                         orgao: orgao,
                         link_sei: proc.link_sei,
-                        cookies: currentCookies
+                        cookies: sessionCookies
                     })
                 });
 
-                const data = await response.json();
+                let data = null;
+                try { data = await response.json(); } catch (parseError) { data = null; }
 
-                if (data.error) throw new Error(data.error);
+                if (!response.ok || !data || data.error) {
+                    throw new Error((data && data.error) || `Serviço de detalhes indisponível (HTTP ${response.status})`);
+                }
 
                 // Render Tree
-                const treeHtml = data.tree.map(item => `
+                const treeHtml = (data.tree || []).map(item => `
                     <div style="padding: 4px 0; padding-left: ${item.type === 'folder' ? '0' : '20px'};">
                         <i class="fas ${item.type === 'folder' ? 'fa-folder' : 'fa-file-alt'}" style="color: ${item.type === 'folder' ? '#f0ad4e' : 'var(--text-color)'}; margin-right: 5px;"></i>
-                        <a href="${item.link}" target="_blank" style="text-decoration: none; color: var(--text-color);">${item.title}</a>
+                        <a href="${escapeHtml(safeUrl(item.link))}" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: var(--text-color);">${escapeHtml(item.title)}</a>
                     </div>
                 `).join('');
                 modal.querySelector(`#qvTree_${uniqueSuffix}`).innerHTML = treeHtml || 'Nenhum documento encontrado.';
 
                 // Render History
-                const historyHtml = `
+                const history = data.history || [];
+                const historyHtml = history.length === 0 ? '' : `
                     <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
                         <thead>
                             <tr style="background: var(--secondary-bg); text-align: left;">
@@ -741,11 +788,11 @@ export function openSeiDashboard() {
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.history.map(h => `
+                            ${history.map(h => `
                                 <tr style="border-bottom: 1px solid var(--separator-color);">
-                                    <td style="padding: 8px;">${h.data}</td>
-                                    <td style="padding: 8px;">${h.unidade}</td>
-                                    <td style="padding: 8px;">${h.descricao}</td>
+                                    <td style="padding: 8px;">${escapeHtml(h.data)}</td>
+                                    <td style="padding: 8px;">${escapeHtml(h.unidade)}</td>
+                                    <td style="padding: 8px;">${escapeHtml(h.descricao)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -754,19 +801,19 @@ export function openSeiDashboard() {
                 modal.querySelector(`#qvHistory_${uniqueSuffix}`).innerHTML = historyHtml || 'Nenhum andamento encontrado.';
 
             } catch (e) {
-                modal.querySelector(`#qvTree_${uniqueSuffix}`).innerHTML = `<p style="color: red;">Erro: ${e.message}</p>`;
+                modal.querySelector(`#qvTree_${uniqueSuffix}`).innerHTML = `<p style="color: red;">Erro: ${escapeHtml(e.message)}</p>`;
                 modal.querySelector(`#qvHistory_${uniqueSuffix}`).innerHTML = '';
             }
         },
 
-        fetchProcessos: async function () {
+        fetchProcessos: async function (silent = false) {
             const user = els.user.value.trim();
-            const pass = els.pass.value.trim();
+            const pass = els.pass.value; // senha não é aparada nem persistida
             const orgao = els.orgao.value.trim();
             const captcha = els.captchaInput.value.trim();
 
             if (!user || !pass || !orgao) {
-                showNotification("Preencha usuário, senha e órgão.", 3000);
+                if (!silent) showNotification("Preencha usuário, senha e órgão.", 3000);
                 return;
             }
 
@@ -781,12 +828,10 @@ export function openSeiDashboard() {
                 const data = await fetchProcessos(user, pass, orgao, captcha, currentCookies, currentHiddenFields, currentLoginUrl);
 
                 if (data.error) {
-                    if (data.captcha) {
-                        loadCaptcha(data.captcha);
-                        return;
-                    }
                     throw new Error(data.error);
                 }
+
+                sessionCookies = (data.cookies && typeof data.cookies === 'object') ? data.cookies : {};
 
                 // Enrich data with local notes and calculated priority
                 this.allProcesses = (data.processos || []).map(p => ({
@@ -811,7 +856,7 @@ export function openSeiDashboard() {
         },
 
         calculatePriority: function (proc) {
-            const text = (proc.descricao + ' ' + proc.tipo + ' ' + proc.interessados).toLowerCase();
+            const text = [proc.descricao, proc.tipo, proc.interessados].filter(Boolean).join(' ').toLowerCase();
             // High Priority
             if (text.match(/(urgente|liminar|mandado|prazo|imediato|prioridade|vencimento|atraso)/)) return 'high';
             // Medium Priority
@@ -820,7 +865,7 @@ export function openSeiDashboard() {
         },
 
         classifyCategory: function (proc) {
-            const text = (proc.descricao + ' ' + proc.tipo + ' ' + proc.interessados + ' ' + proc.unidade).toLowerCase();
+            const text = [proc.descricao, proc.tipo, proc.interessados, proc.unidade].filter(Boolean).join(' ').toLowerCase();
             if (text.match(/(pagamento|fatura|nota fiscal|empenho|financeiro|compra)/)) return 'Financeiro';
             if (text.match(/(contrato|aditivo|licitação|pregão|jurídico|parecer|lei|decreto)/)) return 'Jurídico';
             if (text.match(/(servidor|férias|ponto|nomeação|exoneração|rh|pessoal)/)) return 'RH';
@@ -849,7 +894,7 @@ export function openSeiDashboard() {
         },
 
         detectDeadline: function (proc) {
-            const text = (proc.descricao + ' ' + proc.tipo).toLowerCase();
+            const text = [proc.descricao, proc.tipo].filter(Boolean).join(' ').toLowerCase();
             // Look for dates in format DD/MM/YYYY or DD/MM
             const dateRegex = /(\d{2}\/\d{2}(?:\/\d{4})?)/g;
             const matches = text.match(dateRegex);
@@ -886,7 +931,7 @@ export function openSeiDashboard() {
 
         applyFilters: function () {
             this.filteredProcesses = this.allProcesses.filter(proc => {
-                const matchesSearch = (proc.protocolo + proc.descricao + proc.tipo + proc.interessados).toLowerCase().includes(this.filters.search);
+                const matchesSearch = [proc.protocolo, proc.descricao, proc.tipo, proc.interessados].filter(Boolean).join(' ').toLowerCase().includes(this.filters.search);
                 const matchesPriority = this.filters.priority === 'all' || proc.priority === this.filters.priority;
 
                 // Tag filter
@@ -1009,7 +1054,7 @@ export function openSeiDashboard() {
 
             modal.innerHTML = `
                 <div style="background: var(--window-bg); padding: 20px; border-radius: 8px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto;">
-                    <h3 style="margin-top: 0;">Gerenciar Tags - ${protocolo}</h3>
+                    <h3 style="margin-top: 0;">Gerenciar Tags - ${escapeHtml(protocolo)}</h3>
                     
                     <div style="margin-bottom: 15px;">
                         <h4 style="font-size: 0.9em; margin-bottom: 8px;">Tags Existentes:</h4>
@@ -1051,14 +1096,14 @@ export function openSeiDashboard() {
                     const tagEl = document.createElement('div');
                     tagEl.style.cssText = `
                         display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; 
-                        background: ${tag.color}; color: white; border-radius: 15px; cursor: pointer;
+                        background: ${safeColor(tag.color)}; color: white; border-radius: 15px; cursor: pointer;
                         border: 2px solid ${isSelected ? '#fff' : 'transparent'};
                         opacity: ${isSelected ? '1' : '0.7'};
                         transition: all 0.2s;
                     `;
                     tagEl.innerHTML = `
                         <i class="fas ${isSelected ? 'fa-check-circle' : 'fa-circle'}"></i>
-                        <span>${tag.name}</span>
+                        <span>${escapeHtml(tag.name)}</span>
                         <i class="fas fa-times" style="margin-left: 4px; font-size: 0.8em;"></i>
                     `;
 
@@ -1069,6 +1114,7 @@ export function openSeiDashboard() {
                                 this.deleteTag(tagId);
                                 renderTags();
                                 this.renderList(); // Refresh main list
+                                this.refreshFilterDropdowns();
                             }
                         } else {
                             if (isSelected) {
@@ -1097,6 +1143,7 @@ export function openSeiDashboard() {
                     modal.querySelector('#newTagName').value = '';
                     renderTags();
                     this.renderList();
+                    this.refreshFilterDropdowns();
                     showNotification(`Tag "${name}" criada e adicionada!`, 2000);
                 }
             };
@@ -1115,14 +1162,14 @@ export function openSeiDashboard() {
 
             modal.innerHTML = `
                 <div style="background: var(--window-bg); padding: 20px; border-radius: 8px; max-width: 450px; width: 90%;">
-                    <h3 style="margin-top: 0;">Atribuir Processo - ${protocolo}</h3>
+                    <h3 style="margin-top: 0;">Atribuir Processo - ${escapeHtml(protocolo)}</h3>
                     
                     <div style="margin-bottom: 15px;">
                         <label style="display: block; margin-bottom: 8px; font-weight: 500;">Responsável:</label>
                         <select id="assigneeSelect" class="app-select" style="width: 100%; margin: 0;">
                             <option value="">-- Sem atribuição --</option>
                             ${this.teamMembers.map(member =>
-                `<option value="${member.id}" ${currentAssignee === member.id ? 'selected' : ''}>${member.name}</option>`
+                `<option value="${escapeHtml(member.id)}" ${currentAssignee === member.id ? 'selected' : ''}>${escapeHtml(member.name)}</option>`
             ).join('')}
                         </select>
                     </div>
@@ -1158,6 +1205,7 @@ export function openSeiDashboard() {
                     option.value = id;
                     option.textContent = name;
                     select.appendChild(option);
+                    this.refreshFilterDropdowns();
                     showNotification(`Membro "${name}" adicionado!`, 2000);
                 }
             };
@@ -1200,6 +1248,8 @@ export function openSeiDashboard() {
                     tagFilter.appendChild(option);
                 });
                 tagFilter.value = currentValue;
+                if (!tagFilter.value) tagFilter.value = 'all'; // tag removida
+                this.filters.tag = tagFilter.value;
             }
 
             // Update assignee filter
@@ -1213,6 +1263,8 @@ export function openSeiDashboard() {
                     assigneeFilter.appendChild(option);
                 });
                 assigneeFilter.value = currentValue;
+                if (!assigneeFilter.value) assigneeFilter.value = 'all';
+                this.filters.assignee = assigneeFilter.value;
             }
         },
 
@@ -1234,7 +1286,7 @@ export function openSeiDashboard() {
                             ${Object.keys(this.tags).length === 0 ? '<option value="">Nenhuma tag disponível</option>' : ''}
                             ${Object.keys(this.tags).map(tagId => {
                 const tag = this.tags[tagId];
-                return `<option value="${tagId}">${tag.name}</option>`;
+                return `<option value="${escapeHtml(tagId)}">${escapeHtml(tag.name)}</option>`;
             }).join('')}
                         </select>
                     </div>
@@ -1282,7 +1334,7 @@ export function openSeiDashboard() {
                         <select id="batchAssigneeSelect" class="app-select" style="width: 100%; margin: 0;">
                             <option value="">-- Remover atribuição --</option>
                             ${this.teamMembers.map(member =>
-                `<option value="${member.id}">${member.name}</option>`
+                `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}</option>`
             ).join('')}
                         </select>
                     </div>

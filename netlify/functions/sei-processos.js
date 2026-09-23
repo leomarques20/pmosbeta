@@ -50,7 +50,21 @@ async function requestWithCookies(client, config, jar, url) {
     return response;
 }
 
+const SEI_HOST = 'www.sei.mg.gov.br';
+
 exports.handler = async function (event, context) {
+    if (event.httpMethod === 'OPTIONS') {
+        return {
+            statusCode: 204,
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS'
+            },
+            body: ''
+        };
+    }
+
     if (event.httpMethod !== 'POST') {
         return {
             statusCode: 405,
@@ -76,9 +90,24 @@ exports.handler = async function (event, context) {
         };
     }
 
-    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = payload;
+    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = payload || {};
+    if (typeof usuario !== 'string' || !usuario.trim() || typeof senha !== 'string' || !senha) {
+        return {
+            statusCode: 400,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({ error: 'Usuário e senha são obrigatórios.', processos: [] })
+        };
+    }
     const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
-    const loginTarget = login_url || SEI_LOGIN_URL;
+    // Só aceita URL de login do próprio SEI (evita enviar credenciais para outro host)
+    let loginTarget = SEI_LOGIN_URL;
+    try {
+        const candidate = login_url ? new URL(login_url) : null;
+        if (candidate && candidate.protocol === 'https:' && candidate.hostname === SEI_HOST) loginTarget = candidate.toString();
+    } catch (e) { /* usa o padrão */ }
     const loginUrlObj = new URL(loginTarget);
     const SEI_BASE_URL = loginUrlObj.origin;
 
@@ -86,13 +115,13 @@ exports.handler = async function (event, context) {
     const jar = new CookieJar(undefined, { rejectPublicSuffixes: false });
 
     // Restore cookies from frontend
-    if (cookies) {
+    if (cookies && typeof cookies === 'object') {
         for (const [key, value] of Object.entries(cookies)) {
             try {
                 // Map cookies back to the login host to preserve session.
                 await jar.setCookie(`${key}=${value}; Domain=${loginUrlObj.hostname}; Path=/`, loginTarget);
             } catch (e) {
-                console.warn("Error setting cookie:", key, e);
+                console.warn("Error setting cookie:", key, e.message);
             }
         }
     }
@@ -110,7 +139,7 @@ exports.handler = async function (event, context) {
 
     try {
         // Prepare Form Data
-        const hiddenFields = hidden_fields || {};
+        const hiddenFields = (hidden_fields && typeof hidden_fields === 'object') ? { ...hidden_fields } : {};
 
         // Defaults
         if (!hiddenFields['hdnAcao']) hiddenFields['hdnAcao'] = '1';
@@ -120,16 +149,16 @@ exports.handler = async function (event, context) {
         Object.entries(hiddenFields).forEach(([key, value]) => {
             // Filter out fields we will explicitly set
             if (!['txtUsuario', 'pwdSenha', 'selOrgao', 'sbmLogin', 'txtCaptcha'].includes(key)) {
-                formParams.push(`${urlEncodeISO(key)}=${urlEncodeISO(value)}`);
+                formParams.push(`${urlEncodeISO(key)}=${urlEncodeISO(value == null ? '' : String(value))}`);
             }
         });
 
         formParams.push(`txtUsuario=${urlEncodeISO(usuario)}`);
         formParams.push(`pwdSenha=${urlEncodeISO(senha)}`);
-        formParams.push(`selOrgao=${urlEncodeISO(orgao || '0')}`);
+        formParams.push(`selOrgao=${urlEncodeISO(String(orgao || '0'))}`);
         formParams.push(`sbmLogin=${urlEncodeISO('Acessar')}`);
         if (captcha) {
-            formParams.push(`txtCaptcha=${urlEncodeISO(captcha)}`);
+            formParams.push(`txtCaptcha=${urlEncodeISO(String(captcha))}`);
         }
 
         const bodyString = formParams.join('&');
@@ -151,11 +180,8 @@ exports.handler = async function (event, context) {
 
         while (response.status >= 300 && response.status < 400 && response.headers.location && redirectCount < maxRedirects) {
             redirectCount++;
-            let redirectUrl = response.headers.location;
-            if (!redirectUrl.startsWith('http')) {
-                const baseUrl = new URL(currentUrl).origin;
-                redirectUrl = new URL(redirectUrl, baseUrl).toString();
-            }
+            // Resolve relativo à URL atual (ex.: "controlador.php?..." dentro de /sei/)
+            const redirectUrl = new URL(response.headers.location, currentUrl).toString();
 
             console.log(`Redirecting to: ${redirectUrl}`);
             currentUrl = redirectUrl;
@@ -186,7 +212,7 @@ exports.handler = async function (event, context) {
         // If not on process list, try to navigate to it
         if (!html.includes('infraTable') && !html.includes('processoVisualizado')) {
             // Force navigation to control panel
-            const controlUrl = `${SEI_BASE_URL}/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`;
+            const controlUrl = `${SEI_BASE_URL}/sei/controlador.php?acao=procedimento_controlar&acao_origem=procedimento_controlar&acao_retorno=procedimento_controlar&id_procedimento_atual=&id_documento_atual=&infra_sistema=100000100`;
             const controlResponse = await requestWithCookies(client, { url: controlUrl, method: 'GET' }, jar, controlUrl);
 
             contentType = controlResponse.headers['content-type'] || '';
@@ -209,7 +235,7 @@ exports.handler = async function (event, context) {
             if (protocolo && href) {
                 processos.push({
                     protocolo,
-                    link_sei: href.startsWith('http') ? href : `${SEI_BASE_URL}/${href}`,
+                    link_sei: new URL(href, currentUrl).toString(),
                     interessados: '', // Hard to get in div layout without more context
                     atribuido_a: '',
                     unidade: 'Padrão'
@@ -234,7 +260,7 @@ exports.handler = async function (event, context) {
 
                         processos.push({
                             protocolo,
-                            link_sei: href ? `${SEI_BASE_URL}/${href}` : '',
+                            link_sei: href ? new URL(href, currentUrl).toString() : '',
                             interessados,
                             atribuido_a: atribuido,
                             unidade: 'Padrão'
@@ -251,6 +277,7 @@ exports.handler = async function (event, context) {
                 'Access-Control-Allow-Origin': '*'
             },
             body: JSON.stringify({
+                success: true,
                 processos,
                 total: processos.length,
                 debug: {
@@ -261,13 +288,15 @@ exports.handler = async function (event, context) {
         };
 
     } catch (error) {
-        console.error("SEI Processos Error:", error);
+        console.error("SEI Processos Error:", error && error.message);
         const statusCode = error.statusCode || 500;
         return {
             statusCode,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
             body: JSON.stringify({
-                error: error.message || 'Erro desconhecido ao buscar processos.',
+                success: false,
+                // Mensagens 401 vêm da própria página do SEI; demais erros não expõem detalhes internos
+                error: statusCode === 401 ? error.message : 'Erro ao buscar processos no SEI.',
                 processos: []
             })
         };
