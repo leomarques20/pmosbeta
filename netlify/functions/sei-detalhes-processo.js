@@ -48,22 +48,61 @@ async function requestWithCookies(client, config, jar, url) {
     return response;
 }
 
+const SEI_HOST = 'www.sei.mg.gov.br';
+
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+function jsonResponse(statusCode, body) {
+    return {
+        statusCode,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    };
+}
+
+// Resolve um href relativo à página em que ele apareceu (ex.: /sei/controlador.php)
+function resolveSeiUrl(href, baseUrl) {
+    try {
+        const url = new URL(href, baseUrl);
+        if (url.protocol === 'https:' && url.hostname === SEI_HOST) return url.toString();
+    } catch (e) { /* ignora */ }
+    return null;
+}
+
+function isLoginRedirect(response) {
+    const location = response.headers && response.headers.location;
+    return response.status >= 300 && response.status < 400 && !!location && location.includes('login.php');
+}
+
 exports.handler = async function (event, context) {
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 204, headers: CORS_HEADERS, body: '' };
+    }
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+        return jsonResponse(405, { error: 'Method not allowed' });
     }
 
     let payload;
     try {
         payload = JSON.parse(event.body || '{}');
     } catch (err) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
+        return jsonResponse(400, { error: 'Invalid JSON' });
     }
 
-    const { usuario, senha, orgao, link_sei, cookies } = payload;
+    const { usuario, senha, orgao, cookies } = payload || {};
 
+    if (!payload || !payload.link_sei) {
+        return jsonResponse(400, { error: 'Link do processo é obrigatório.' });
+    }
+
+    // Só busca páginas do próprio SEI (evita SSRF / envio de cookies para outros hosts)
+    const link_sei = resolveSeiUrl(String(payload.link_sei), `https://${SEI_HOST}/sei/`);
     if (!link_sei) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Link do processo é obrigatório.' }) };
+        return jsonResponse(400, { error: 'Link do processo inválido.' });
     }
 
     const SEI_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
@@ -73,7 +112,7 @@ exports.handler = async function (event, context) {
     const jar = new CookieJar(undefined, { rejectPublicSuffixes: false });
 
     // Restore cookies if provided
-    if (cookies) {
+    if (cookies && typeof cookies === 'object') {
         for (const [key, value] of Object.entries(cookies)) {
             try {
                 await jar.setCookie(`${key}=${value}; Domain=${loginUrlObj.hostname}; Path=/`, SEI_LOGIN_URL);
@@ -93,14 +132,17 @@ exports.handler = async function (event, context) {
     });
 
     try {
-        console.log(`[DEBUG] Fetching details for: ${link_sei}`);
+        console.log(`[DEBUG] Fetching details for process`);
         // 1. Check if session is valid by accessing the link directly
         let response = await requestWithCookies(client, { url: link_sei, method: 'GET' }, jar, link_sei);
         console.log(`[DEBUG] Initial response status: ${response.status}`);
 
         // If redirected to login, perform login
-        if (response.status >= 300 && response.headers.location && response.headers.location.includes('login.php')) {
+        if (isLoginRedirect(response)) {
             console.log("[DEBUG] Session expired, logging in...");
+            if (!usuario || !senha) {
+                return jsonResponse(401, { error: 'Sessão do SEI expirada. Faça login novamente no Dashboard SEI.' });
+            }
             // Perform Login (Simplified version, assuming captcha not needed for re-auth if session just expired, or we fail)
             // Ideally we should reuse the full login flow, but for brevity let's assume valid cookies or fail.
             // If we need to login, we need the full params.
@@ -141,6 +183,9 @@ exports.handler = async function (event, context) {
             // Retry accessing the process link
             console.log(`[DEBUG] Retrying process link: ${link_sei}`);
             response = await requestWithCookies(client, { url: link_sei, method: 'GET' }, jar, link_sei);
+            if (isLoginRedirect(response)) {
+                return jsonResponse(401, { error: 'Sessão do SEI expirada. Faça login novamente no Dashboard SEI.' });
+            }
         }
 
         let html = iconv.decode(response.data, 'iso-8859-1'); // SEI usually uses this
@@ -153,8 +198,9 @@ exports.handler = async function (event, context) {
         let treeData = [];
 
         if (treeIframeSrc) {
-            const treeUrl = treeIframeSrc.startsWith('http') ? treeIframeSrc : `${SEI_BASE_URL}/${treeIframeSrc}`;
-            console.log(`[DEBUG] Fetching Tree URL: ${treeUrl}`);
+            const treeUrl = resolveSeiUrl(treeIframeSrc, link_sei);
+            if (!treeUrl) throw new Error('URL da árvore do processo inválida.');
+            console.log(`[DEBUG] Fetching Tree URL`);
             const treeResp = await requestWithCookies(client, { url: treeUrl, method: 'GET' }, jar, treeUrl);
             const treeHtml = iconv.decode(treeResp.data, 'iso-8859-1');
             const $tree = cheerio.load(treeHtml);
@@ -169,7 +215,7 @@ exports.handler = async function (event, context) {
                 if (text) {
                     treeData.push({
                         title: text,
-                        link: href ? `${SEI_BASE_URL}/${href}` : null,
+                        link: href ? resolveSeiUrl(href, treeUrl) : null,
                         type: isFolder ? 'folder' : 'document'
                     });
                 }
@@ -188,8 +234,8 @@ exports.handler = async function (event, context) {
         const idProcedimentoMatch = link_sei.match(/id_procedimento=(\d+)/);
         if (idProcedimentoMatch) {
             const idProcedimento = idProcedimentoMatch[1];
-            const historyUrl = `${SEI_BASE_URL}/controlador.php?acao=andamento_listar&id_procedimento=${idProcedimento}&infra_sistema=100000100&infra_unidade_atual=110000008&infra_hash=`; // Hash might be needed...
-            console.log(`[DEBUG] Attempting History URL: ${historyUrl}`);
+            const historyUrl = `${SEI_BASE_URL}/sei/controlador.php?acao=andamento_listar&id_procedimento=${idProcedimento}&infra_sistema=100000100&infra_unidade_atual=110000008&infra_hash=`; // Hash might be needed...
+            console.log(`[DEBUG] Attempting History URL`);
 
             // Actually, let's try to find the link in the main page or tree page if possible.
             // But constructing is often easier if we don't need hash. SEI usually needs hash for some actions.
@@ -220,25 +266,17 @@ exports.handler = async function (event, context) {
             console.log(`[DEBUG] History items found: ${historyData.length}`);
         }
 
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-            body: JSON.stringify({
-                tree: treeData,
-                history: historyData,
-                debug: {
-                    treeSrc: treeIframeSrc,
-                    treeCount: treeData.length,
-                    historyCount: historyData.length
-                }
-            })
-        };
+        return jsonResponse(200, {
+            tree: treeData,
+            history: historyData,
+            debug: {
+                treeCount: treeData.length,
+                historyCount: historyData.length
+            }
+        });
 
     } catch (error) {
-        console.error("SEI Detalhes Error:", error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: error.message || 'Erro ao buscar detalhes.' })
-        };
+        console.error("SEI Detalhes Error:", error && error.message);
+        return jsonResponse(500, { error: 'Erro ao buscar detalhes do processo.' });
     }
 };

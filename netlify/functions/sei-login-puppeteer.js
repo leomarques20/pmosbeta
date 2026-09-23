@@ -1,16 +1,54 @@
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
+const SEI_HOST = 'www.sei.mg.gov.br';
+const SEI_DEFAULT_LOGIN_URL = 'https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI';
+
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+function jsonResponse(statusCode, body) {
+    return {
+        statusCode,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    };
+}
+
+// Só aceita URLs de login do próprio SEI (evita enviar credenciais para outro host)
+function resolveLoginUrl(loginUrl) {
+    if (!loginUrl) return SEI_DEFAULT_LOGIN_URL;
+    try {
+        const url = new URL(loginUrl);
+        if (url.protocol === 'https:' && url.hostname === SEI_HOST) return url.toString();
+    } catch (e) { /* ignora */ }
+    return SEI_DEFAULT_LOGIN_URL;
+}
+
 exports.handler = async (event) => {
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 204, headers: CORS_HEADERS, body: '' };
+    }
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ error: 'Method not allowed' })
-        };
+        return jsonResponse(405, { success: false, error: 'Method not allowed', processos: [] });
     }
 
-    const { usuario, senha, orgao, captcha } = JSON.parse(event.body);
+    let payload;
+    try {
+        payload = JSON.parse(event.body || '{}');
+    } catch (e) {
+        return jsonResponse(400, { success: false, error: 'Corpo da requisição inválido.', processos: [] });
+    }
+
+    const { usuario, senha, orgao, captcha, cookies, hidden_fields, login_url } = payload || {};
+    if (typeof usuario !== 'string' || !usuario.trim() || typeof senha !== 'string' || !senha) {
+        return jsonResponse(400, { success: false, error: 'Usuário e senha são obrigatórios.', processos: [] });
+    }
+    const loginUrl = resolveLoginUrl(login_url);
+    const hasChallengeSession = cookies && typeof cookies === 'object' && Object.keys(cookies).length > 0;
 
     let browser = null;
 
@@ -34,10 +72,28 @@ exports.handler = async (event) => {
         // Configura User-Agent
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
+        // O captcha foi resolvido na sessão criada por sei-auth-challenge: reaproveita os mesmos cookies
+        // e impede que o navegador baixe um novo captcha (o que invalidaria o que o usuário digitou).
+        if (hasChallengeSession) {
+            const cookieList = Object.entries(cookies)
+                .filter(([name, value]) => name && typeof value === 'string')
+                .map(([name, value]) => ({ name, value, url: loginUrl }));
+            if (cookieList.length) await page.setCookie(...cookieList);
+
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                if (req.resourceType() === 'image' && /captcha/i.test(req.url())) {
+                    req.abort().catch(() => { });
+                } else {
+                    req.continue().catch(() => { });
+                }
+            });
+        }
+
         console.log('Navigating to SEI login page...');
 
         // 1. Acessa página de login
-        await page.goto('https://www.sei.mg.gov.br/sip/login.php?sigla_orgao_sistema=GOVMG&sigla_sistema=SEI', {
+        await page.goto(loginUrl, {
             waitUntil: 'networkidle2',
             timeout: 30000
         });
@@ -51,12 +107,25 @@ exports.handler = async (event) => {
 
         // Seleciona órgão
         if (orgao) {
-            await page.select('#selOrgao', orgao);
+            await page.select('#selOrgao', String(orgao));
+        }
+
+        // Restaura os campos ocultos da página em que o captcha foi gerado
+        if (hasChallengeSession && hidden_fields && typeof hidden_fields === 'object') {
+            await page.evaluate((fields) => {
+                const skip = ['txtUsuario', 'pwdSenha', 'selOrgao', 'txtCaptcha'];
+                Object.entries(fields).forEach(([name, value]) => {
+                    if (skip.includes(name)) return;
+                    const input = document.querySelector(`input[type="hidden"][name="${CSS.escape(name)}"]`);
+                    if (input) input.value = value == null ? '' : String(value);
+                });
+            }, hidden_fields);
         }
 
         // Preenche captcha se fornecido
         if (captcha) {
-            await page.type('#txtCaptcha', captcha);
+            const hasCaptchaField = await page.$('#txtCaptcha');
+            if (hasCaptchaField) await page.type('#txtCaptcha', String(captcha));
         }
 
         console.log('Submitting login...');
@@ -80,20 +149,11 @@ exports.handler = async (event) => {
                 return msgDiv ? msgDiv.textContent.trim() : 'Credenciais inválidas ou captcha incorreto';
             });
 
-            await browser.close();
-
-            return {
-                statusCode: 401,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
-                body: JSON.stringify({
-                    success: false,
-                    error: errorMsg,
-                    processos: []
-                })
-            };
+            return jsonResponse(401, {
+                success: false,
+                error: errorMsg,
+                processos: []
+            });
         }
 
         console.log('Login successful! Extracting processes...');
@@ -245,44 +305,35 @@ exports.handler = async (event) => {
 
         console.log(`Found ${processos.length} processes`);
 
-        await browser.close();
+        // Cookies da sessão autenticada (usados depois por sei-detalhes-processo)
+        const sessionCookies = {};
+        const seiCookies = await page.cookies(`https://${SEI_HOST}/sei/controlador.php`);
+        seiCookies
+            .sort((a, b) => (a.path || '').length - (b.path || '').length) // path mais específico prevalece
+            .forEach(c => { sessionCookies[c.name] = c.value; });
 
-        return {
-            statusCode: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            body: JSON.stringify({
-                success: true,
-                processos,
-                total: processos.length,
-                debug: {
-                    finalUrl: currentUrl,
-                    processosFound: processos.length
-                }
-            })
-        };
+        return jsonResponse(200, {
+            success: true,
+            processos,
+            total: processos.length,
+            cookies: sessionCookies,
+            debug: {
+                finalUrl: currentUrl,
+                processosFound: processos.length
+            }
+        });
 
     } catch (error) {
-        console.error('SEI Puppeteer Error:', error);
+        console.error('SEI Puppeteer Error:', error && error.message);
 
+        return jsonResponse(500, {
+            success: false,
+            error: 'Erro ao acessar o SEI. Tente novamente.',
+            processos: []
+        });
+    } finally {
         if (browser) {
-            await browser.close().catch(err => console.error('Error closing browser:', err));
+            await browser.close().catch(err => console.error('Error closing browser:', err && err.message));
         }
-
-        return {
-            statusCode: 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            body: JSON.stringify({
-                success: false,
-                error: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-                processos: []
-            })
-        };
     }
 };

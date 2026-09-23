@@ -15,8 +15,8 @@ export function openAIAssistant() {
         height: '500px',
         appType: 'ai-assistant'
     });
-    const winElement = document.getElementById(winId);
-    const contentEl = winElement.querySelector('.window-content');
+    const winElement = winId ? document.getElementById(winId) : null;
+    const contentEl = winElement ? winElement.querySelector('.window-content') : null;
     if (!contentEl) {
         showNotification('Falha ao inicializar a interface do assistente IA.', 3000);
         return;
@@ -40,6 +40,20 @@ export function openAIAssistant() {
     const input = container.querySelector('input');
     const button = container.querySelector('button');
 
+    // Adiciona uma mensagem ao chat usando textContent (evita injeção de HTML
+    // vindo do usuário ou da resposta da IA).
+    const appendMessage = (className, label, message) => {
+        const msgEl = document.createElement('div');
+        msgEl.className = className;
+        msgEl.style.whiteSpace = 'pre-wrap';
+        const strong = document.createElement('strong');
+        strong.textContent = label;
+        msgEl.appendChild(strong);
+        msgEl.appendChild(document.createTextNode(' ' + message));
+        display.appendChild(msgEl);
+        display.scrollTop = display.scrollHeight;
+    };
+
     /**
      * Função auxiliar para enviar uma mensagem ao servidor e exibir a
      * resposta. Esta função realiza uma chamada fetch para a função
@@ -52,11 +66,7 @@ export function openAIAssistant() {
         const text = input.value.trim();
         if (!text) return;
         // Exibir mensagem do usuário
-        const userMsgEl = document.createElement('div');
-        userMsgEl.className = 'ai-chat-user-message';
-        userMsgEl.innerHTML = `<strong>Você:</strong> ${text}`;
-        display.appendChild(userMsgEl);
-        display.scrollTop = display.scrollHeight;
+        appendMessage('ai-chat-user-message', 'Você:', text);
         // Limpar campo de entrada
         input.value = '';
 
@@ -106,11 +116,7 @@ export function openAIAssistant() {
                     if (typeof tasksInstance.markDirty === 'function') tasksInstance.markDirty();
                     if (typeof tasksInstance.renderTasks === 'function') tasksInstance.renderTasks();
                     // Resposta da IA
-                    const botMsgEl = document.createElement('div');
-                    botMsgEl.className = 'ai-chat-bot-message';
-                    botMsgEl.innerHTML = `<strong>IA:</strong> Tarefa criada: \"${taskDesc}\".`;
-                    display.appendChild(botMsgEl);
-                    display.scrollTop = display.scrollHeight;
+                    appendMessage('ai-chat-bot-message', 'IA:', `Tarefa criada: "${taskDesc}".`);
                     return;
                 }
             }
@@ -135,11 +141,7 @@ export function openAIAssistant() {
                     boardInstance.boardData.columns.push({ id: newColId, title: colTitle, cards: [] });
                     if (typeof boardInstance.markDirty === 'function') boardInstance.markDirty();
                     if (typeof boardInstance.renderBoard === 'function') boardInstance.renderBoard();
-                    const botMsgEl = document.createElement('div');
-                    botMsgEl.className = 'ai-chat-bot-message';
-                    botMsgEl.innerHTML = `<strong>IA:</strong> Coluna criada: \"${colTitle}\".`;
-                    display.appendChild(botMsgEl);
-                    display.scrollTop = display.scrollHeight;
+                    appendMessage('ai-chat-bot-message', 'IA:', `Coluna criada: "${colTitle}".`);
                     return;
                 }
             }
@@ -168,11 +170,7 @@ export function openAIAssistant() {
                         }
                         if (typeof ganttInstance.markDirty === 'function') ganttInstance.markDirty();
                         if (typeof ganttInstance.renderAll === 'function') ganttInstance.renderAll();
-                        const botMsgEl = document.createElement('div');
-                        botMsgEl.className = 'ai-chat-bot-message';
-                        botMsgEl.innerHTML = `<strong>IA:</strong> Tarefa do Gantt criada: \"${taskName}\".`;
-                        display.appendChild(botMsgEl);
-                        display.scrollTop = display.scrollHeight;
+                        appendMessage('ai-chat-bot-message', 'IA:', `Tarefa do Gantt criada: "${taskName}".`);
                         return;
                     }
                 }
@@ -206,11 +204,7 @@ export function openAIAssistant() {
                     column.cards.push(newCard);
                     if (typeof boardInstance.markDirty === 'function') boardInstance.markDirty();
                     if (typeof boardInstance.renderBoard === 'function') boardInstance.renderBoard();
-                    const botMsgEl = document.createElement('div');
-                    botMsgEl.className = 'ai-chat-bot-message';
-                    botMsgEl.innerHTML = `<strong>IA:</strong> Card criado no Kanban: \"${cardTitle}\".`;
-                    display.appendChild(botMsgEl);
-                    display.scrollTop = display.scrollHeight;
+                    appendMessage('ai-chat-bot-message', 'IA:', `Card criado no Kanban: "${cardTitle}".`);
                     return;
                 }
             }
@@ -244,40 +238,31 @@ export function openAIAssistant() {
                         console.error('Erro ao executar ação de comando IA:', err);
                     }
                 }
-                const botMsgEl = document.createElement('div');
-                botMsgEl.className = 'ai-chat-bot-message';
-                botMsgEl.innerHTML = `<strong>IA:</strong> ${cmd.response}`;
-                display.appendChild(botMsgEl);
-                display.scrollTop = display.scrollHeight;
+                appendMessage('ai-chat-bot-message', 'IA:', `${cmd.response}`);
                 return;
             }
         }
 
         // Caso não seja um comando, chamar a API Gemini através da função serverless
         try {
-            const res = await fetch('/.netlify/functions/ai', {
+            const res = await fetch('/.netlify/functions/ai-proxy', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: text })
+                body: JSON.stringify({ prompt: text, appType: 'ai-assistant', uiLocale: 'pt-BR' })
             });
-            const data = await res.json();
+            let data = null;
+            try { data = await res.json(); } catch (_) { data = null; }
             let responseText;
-            if (data && data.response) {
-                responseText = data.response;
+            if (res.ok && data && typeof data.text === 'string' && data.text.trim()) {
+                responseText = data.text.trim();
+            } else if (res.status === 404) {
+                responseText = 'O serviço de IA não está disponível neste ambiente (use o deploy no Netlify ou `netlify dev`).';
             } else {
-                responseText = data.error || 'Sem resposta da IA.';
+                responseText = (data && data.error) || 'Sem resposta da IA.';
             }
-            const botMsgEl = document.createElement('div');
-            botMsgEl.className = 'ai-chat-bot-message';
-            botMsgEl.innerHTML = `<strong>IA:</strong> ${responseText.replace(/\n/g, '<br>')}`;
-            display.appendChild(botMsgEl);
-            display.scrollTop = display.scrollHeight;
+            appendMessage('ai-chat-bot-message', 'IA:', responseText);
         } catch (e) {
-            const errorEl = document.createElement('div');
-            errorEl.className = 'ai-chat-error-message';
-            errorEl.innerHTML = `<strong>Erro:</strong> Falha ao comunicar com a IA. ${e.message}`;
-            display.appendChild(errorEl);
-            display.scrollTop = display.scrollHeight;
+            appendMessage('ai-chat-error-message', 'Erro:', `Falha ao comunicar com a IA. ${e.message}`);
         }
     };
     // Ações de envio: botão e tecla Enter

@@ -1,6 +1,11 @@
 import { showNotification, generateId } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
+// Escapa texto do usuário antes de inseri-lo via innerHTML
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 // Função de fábrica autônoma para ferramentas da qualidade
 function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, fileNameSuffix, formGridCols = 1) {
     const uniqueSuffix = generateId(appType);
@@ -36,11 +41,13 @@ function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, f
         getData: function() { return this.items; },
         loadData: function(dataString, fileMeta) { 
             try {
-                const data = JSON.parse(dataString);
-                this.items = Array.isArray(data) ? data : []; 
-                this.fileId = fileMeta.id;
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                if (!Array.isArray(data)) { showNotification(`Formato de arquivo inválido para ${toolName}.`, 3000); return; }
+                this.items = data.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+                    .map(item => ({ ...item, id: item.id != null ? String(item.id) : generateId(appType) }));
+                this.fileId = fileMeta?.id ?? null;
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
                 this.renderList(); 
                 this.clearForm();
             } catch(e) {
@@ -90,6 +97,7 @@ function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, f
 export function open5W2HTool() {
     const formHTML = `<input type="text" id="w5h2WhatInput" class="app-input" placeholder="O Quê será feito? (What)" style="grid-column: span 2;"> <textarea id="w5h2WhyInput" class="app-textarea" placeholder="Por Quê será feito? (Why)" style="grid-column: span 2; min-height:60px;"></textarea> <input type="text" id="w5h2WhereInput" class="app-input" placeholder="Onde? (Where)"> <input type="text" id="w5h2WhenInput" class="app-input" placeholder="Quando? (When - ex: data, prazo)"> <input type="text" id="w5h2WhoInput" class="app-input" placeholder="Quem? (Who - responsável)"> <input type="text" id="w5h2HowInput" class="app-input" placeholder="Como? (How - método, etapas)" style="grid-column: span 2;"> <input type="number" id="w5h2HowMuchInput" class="app-input" placeholder="Quanto custará? (How Much)" step="0.01"> <select id="w5h2StatusInput" class="app-select"><option value="planejado">Planejado</option><option value="em_andamento">Em Andamento</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option><option value="aguardando">Aguardando</option></select>`;
     const { winId, appState } = createCustomQualityToolWindow('Ferramenta 5W2H', '5w2h', formHTML, 'Planos de Ação 5W2H', '5w2h', 2);
+    if (!appState) return winId;
 
     appState.collectFormData = function() {
         const what = this.formArea.querySelector('#w5h2WhatInput').value.trim();
@@ -125,13 +133,13 @@ export function open5W2HTool() {
         const icon = statusIcons[item.status] || 'fa-question';
         return `<li>
             <div class="item-details">
-                <strong><i class="fas ${icon}" style="margin-right:8px;"></i>${item.what}</strong>
-                <small>Quem: ${item.who || 'N/I'} | Quando: ${item.when || 'N/I'} | Custo: R$ ${item.howMuch.toFixed(2)} | Status: ${item.status}</small>
+                <strong><i class="fas ${icon}" style="margin-right:8px;"></i>${escapeHtml(item.what)}</strong>
+                <small>Quem: ${escapeHtml(item.who || 'N/I')} | Quando: ${escapeHtml(item.when || 'N/I')} | Custo: R$ ${(Number(item.howMuch) || 0).toFixed(2)} | Status: ${escapeHtml(item.status)}</small>
                 <details style="margin-top:5px;">
                     <summary>Ver Detalhes</summary>
-                    <p><strong>Porquê:</strong> ${item.why || 'N/I'}</p>
-                    <p><strong>Onde:</strong> ${item.where || 'N/I'}</p>
-                    <p><strong>Como:</strong> ${item.how || 'N/I'}</p>
+                    <p><strong>Porquê:</strong> ${escapeHtml(item.why || 'N/I')}</p>
+                    <p><strong>Onde:</strong> ${escapeHtml(item.where || 'N/I')}</p>
+                    <p><strong>Como:</strong> ${escapeHtml(item.how || 'N/I')}</p>
                 </details>
             </div>
             <div class="item-actions">

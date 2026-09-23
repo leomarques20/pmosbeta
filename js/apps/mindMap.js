@@ -33,12 +33,17 @@ export function openMindMap() {
         getData: function() { return winData.jmInstance ? winData.jmInstance.get_data('node_tree') : {}; },
         loadData: function(dataString, fileMeta) {
             try {
-                const data = JSON.parse(dataString);
-                if (data.format === "node_tree" && data.data) {
-                    winData.jmInstance.show(data);
-                    this.fileId = fileMeta.id;
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                if (data && data.format === "node_tree" && data.data && typeof data.data === 'object') {
+                    if (winData.jmInstance) {
+                        winData.jmInstance.show(data);
+                    } else {
+                        // jsMind ainda não foi inicializado (setTimeout abaixo); aplica ao iniciar.
+                        this.pendingData = data;
+                    }
+                    this.fileId = fileMeta?.id ?? null;
                     this.markClean();
-                    window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
+                    if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
                 } else {
                     showNotification("Formato de arquivo inválido.", 3000);
                 }
@@ -58,9 +63,28 @@ export function openMindMap() {
         if (typeof jsMind !== 'undefined') {
             try {
                 const mindData = { meta: { name: "WebOS_MindMap", author: "User", version: "1.0" }, format: "node_tree", data: { id: "root", topic: "Tema Central", children: [] } };
-                const options = { container: appState.jsmindContainerId, editable: true, theme: window.themeManager.isDark ? 'dark' : 'primary' };
+                // support_html: false evita injeção de HTML/script via tópicos de arquivos importados.
+                const options = { container: appState.jsmindContainerId, editable: true, support_html: false, theme: window.themeManager.isDark ? 'dark' : 'primary' };
                 winData.jmInstance = new jsMind(options);
-                winData.jmInstance.show(mindData);
+                // Os atalhos do jsMind escutam o document inteiro; restringe à janela ativa deste mapa
+                // e ignora teclas digitadas em campos de texto (senão Delete/Enter em outro app alteram o mapa).
+                // Objeto próprio por instância: o jsMind compartilha o objeto de opções padrão entre instâncias.
+                if (winData.jmInstance.shortcut) {
+                    winData.jmInstance.shortcut.opts = {
+                        get enable() {
+                            if (!winData.jmInstance || window.windowManager.activeWindowId !== winId) return false;
+                            const ae = document.activeElement;
+                            return !(ae && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)));
+                        },
+                        set enable(v) {}
+                    };
+                }
+                winData.jmInstance.show(appState.pendingData || mindData);
+                appState.pendingData = null;
+                // Marca como alterado em qualquer edição (adicionar, remover, renomear, mover nós).
+                winData.jmInstance.add_event_listener((type) => {
+                    if (type === jsMind.event_type.edit) appState.markDirty();
+                });
                 
                 const toolbar = winData.element.querySelector(`#mmToolbar_${uniqueSuffix}`);
                 toolbar.addEventListener('click', (e) => {
@@ -76,7 +100,6 @@ export function openMindMap() {
                 
                 toolbar.querySelector(`#bgColorPicker_${uniqueSuffix}`).oninput = (e) => setMindMapNodeColor(winData.jmInstance, e.target.value, null, appState);
                 toolbar.querySelector(`#fgColorPicker_${uniqueSuffix}`).oninput = (e) => setMindMapNodeColor(winData.jmInstance, null, e.target.value, appState);
-                winData.element.querySelector('.jsmind_editor').addEventListener('input', () => appState.markDirty());
             } catch (e) { console.error("Erro ao inicializar Mapa Mental:", e); }
         }
     }, 150);
@@ -84,15 +107,17 @@ export function openMindMap() {
 }
 
 function exportMindMapPNG(jmInstance, containerId) {
+     if (!jmInstance || !jmInstance.mind) return;
+     if (typeof html2canvas === 'undefined') { showNotification("Biblioteca de exportação indisponível.", 3000); return; }
      const mind = jmInstance.mind;
-     const filename = (mind.data.topic || mind.meta.name || 'mapa_mental') + '.png';
+     const filename = ((mind.root && mind.root.topic) || mind.name || 'mapa_mental') + '.png';
      html2canvas(document.getElementById(containerId)).then(canvas => {
         const link = document.createElement('a');
         link.download = filename;
         link.href = canvas.toDataURL("image/png");
         link.click();
-     });
+     }).catch(err => { console.error(err); showNotification("Falha ao exportar PNG.", 3000); });
 }
-function addMindMapNodeInteractive(jm, appState) { const n = jm.get_selected_node(); if(!n) return; const t=prompt("Nome:"); if(t) {jm.add_node(n.id, jsMind.util.uuid.newid(),t); appState.markDirty();}}
-function removeMindMapNodeInteractive(jm, appState) {const n=jm.get_selected_node(); if(n && !n.isroot && confirm("Remover?")){jm.remove_node(n.id);appState.markDirty();}}
-function setMindMapNodeColor(jm, bg, fg, appState){const n=jm.get_selected_node(); if(n){jm.set_node_color(n.id,bg,fg); appState.markDirty();}}
+function addMindMapNodeInteractive(jm, appState) { if(!jm) return; const n = jm.get_selected_node(); if(!n) return; const t=prompt("Nome:"); if(t) {jm.add_node(n.id, jsMind.util.uuid.newid(),t); appState.markDirty();}}
+function removeMindMapNodeInteractive(jm, appState) {if(!jm) return; const n=jm.get_selected_node(); if(n && !n.isroot && confirm("Remover?")){jm.remove_node(n.id);appState.markDirty();}}
+function setMindMapNodeColor(jm, bg, fg, appState){if(!jm) return; const n=jm.get_selected_node(); if(n){jm.set_node_color(n.id,bg,fg); appState.markDirty();}}

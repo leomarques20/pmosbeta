@@ -9,7 +9,10 @@ This project requires environment variables to be configured for deployment.
    cp env.example.json env.json
    ```
 
-2. Fill in your actual API keys and configuration values in `env.json`
+2. Fill in your Firebase web configuration values in `env.json`.
+   `env.json` is served to the browser as a fallback, so do **not** put
+   `GEMINI_API_KEY` (or any other secret) in it. To test the AI functions
+   locally, run `netlify dev` with `GEMINI_API_KEY` set in your shell or `.env`.
 
 ## Netlify Deployment
 
@@ -27,9 +30,13 @@ The `env.json` file is excluded from version control for security. For Netlify d
 - `FIREBASE_MESSAGING_SENDER_ID`
 - `FIREBASE_APP_ID`
 - `FIREBASE_MEASUREMENT_ID`
-- `GEMINI_API_KEY`
+- `GEMINI_API_KEY` (secret — server-side only)
+- `GEMINI_MODEL` (optional, defaults to `gemini-2.5-flash`)
 
-These values will be automatically injected by the `/.netlify/functions/env` serverless function.
+Only the `FIREBASE_*` values are exposed to the browser, via the
+`/.netlify/functions/env` serverless function. `GEMINI_API_KEY` and
+`GEMINI_MODEL` are read only by the AI functions (`/.netlify/functions/ai-proxy`,
+used by the app, and `/.netlify/functions/ai`).
 
 ## Security Note
 

@@ -1,6 +1,11 @@
 import { showNotification, generateId } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
+// Escapa texto do usuário antes de inseri-lo via innerHTML
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
 // Função de fábrica autônoma para ferramentas da qualidade
 function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, fileNameSuffix, formGridCols = 1) {
     const uniqueSuffix = generateId(appType);
@@ -36,11 +41,13 @@ function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, f
         getData: function() { return this.items; },
         loadData: function(dataString, fileMeta) { 
             try {
-                const data = JSON.parse(dataString);
-                this.items = Array.isArray(data) ? data : []; 
-                this.fileId = fileMeta.id;
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                if (!Array.isArray(data)) { showNotification(`Formato de arquivo inválido para ${toolName}.`, 3000); return; }
+                this.items = data.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+                    .map(item => ({ ...item, id: item.id != null ? String(item.id) : generateId(appType) }));
+                this.fileId = fileMeta?.id ?? null;
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
                 this.renderList(); 
                 this.clearForm();
             } catch(e) {
@@ -91,6 +98,7 @@ function createCustomQualityToolWindow(toolName, appType, formHTML, listTitle, f
 export function openPDCATool() {
     const formHTML = `<input type="text" id="pdcaTitleInput" class="app-input" placeholder="Título da Iniciativa/Problema" style="grid-column: span 2;"> <textarea id="pdcaPlanInput" class="app-textarea" placeholder="Planejar (Plan)..." style="min-height:80px; grid-column: span 2;"></textarea> <textarea id="pdcaDoInput" class="app-textarea" placeholder="Executar (Do)..." style="min-height:80px; grid-column: span 2;"></textarea> <textarea id="pdcaCheckInput" class="app-textarea" placeholder="Verificar (Check)..." style="min-height:80px; grid-column: span 2;"></textarea> <textarea id="pdcaActInput" class="app-textarea" placeholder="Agir (Act)..." style="min-height:80px; grid-column: span 2;"></textarea> <input type="text" id="pdcaResponsibleInput" class="app-input" placeholder="Responsável"> <input type="date" id="pdcaStartDateInput" class="app-input" title="Data de Início"> <select id="pdcaStatusInput" class="app-select"><option value="planejamento">Planejamento</option><option value="execucao">Execução</option><option value="verificacao">Verificação</option><option value="acao">Ação</option><option value="concluido">Concluído</option><option value="suspenso">Suspenso</option></select>`;
     const { winId, appState } = createCustomQualityToolWindow('Ciclo PDCA', 'pdca', formHTML, 'Iniciativas PDCA', 'pdca', 2);
+    if (!appState) return winId;
 
     appState.collectFormData = function() {
         const title = this.formArea.querySelector('#pdcaTitleInput').value.trim();
@@ -126,14 +134,14 @@ export function openPDCATool() {
         const icon = statusIcons[item.status] || 'fa-spinner';
         return `<li>
             <div class="item-details">
-                <strong><i class="fas ${icon}" style="margin-right:8px;"></i>${item.title}</strong>
-                <small>Status: ${item.status}, Início: ${item.startDate || 'N/D'}, Resp: ${item.responsible || 'N/I'}</small>
+                <strong><i class="fas ${icon}" style="margin-right:8px;"></i>${escapeHtml(item.title)}</strong>
+                <small>Status: ${escapeHtml(item.status)}, Início: ${escapeHtml(item.startDate || 'N/D')}, Resp: ${escapeHtml(item.responsible || 'N/I')}</small>
                 <details style="margin-top:5px;">
                     <summary>Ver Detalhes</summary>
-                    <p><strong>Plan:</strong> ${item.plan?.substring(0,150)}...</p>
-                    <p><strong>Do:</strong> ${item.do?.substring(0,150)}...</p>
-                    <p><strong>Check:</strong> ${item.check?.substring(0,150)}...</p>
-                    <p><strong>Act:</strong> ${item.act?.substring(0,150)}...</p>
+                    <p><strong>Plan:</strong> ${escapeHtml(String(item.plan ?? '').substring(0,150))}...</p>
+                    <p><strong>Do:</strong> ${escapeHtml(String(item.do ?? '').substring(0,150))}...</p>
+                    <p><strong>Check:</strong> ${escapeHtml(String(item.check ?? '').substring(0,150))}...</p>
+                    <p><strong>Act:</strong> ${escapeHtml(String(item.act ?? '').substring(0,150))}...</p>
                 </details>
             </div>
             <div class="item-actions">

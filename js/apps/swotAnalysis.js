@@ -24,14 +24,16 @@ export function openSWOTAnalysis() {
         getData: function() { return { strengths: this.strengthsEl.value, weaknesses: this.weaknessesEl.value, opportunities: this.opportunitiesEl.value, threats: this.threatsEl.value }; },
         loadData: function(dataString, fileMeta) { 
             try { 
-                const data = JSON.parse(dataString);
-                this.strengthsEl.value = data.strengths || ''; 
-                this.weaknessesEl.value = data.weaknesses || ''; 
-                this.opportunitiesEl.value = data.opportunities || ''; 
-                this.threatsEl.value = data.threats || ''; 
-                this.fileId = fileMeta.id; 
+                const parsed = JSON.parse(dataString);
+                const data = (parsed && typeof parsed === 'object') ? parsed : {};
+                const str = v => (typeof v === 'string') ? v : '';
+                this.strengthsEl.value = str(data.strengths); 
+                this.weaknessesEl.value = str(data.weaknesses); 
+                this.opportunitiesEl.value = str(data.opportunities); 
+                this.threatsEl.value = str(data.threats); 
+                this.fileId = fileMeta?.id ?? null; 
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                window.windowManager.updateWindowTitle(this.winId, fileMeta?.name || "Nova Análise SWOT"); 
             } catch (e) { 
                 showNotification("Erro ao ler arquivo SWOT.", 3000); 
             } 

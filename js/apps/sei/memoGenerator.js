@@ -1,4 +1,9 @@
-import { showNotification } from '../main.js';
+import { showNotification } from '../../main.js';
+
+// Escapa texto vindo do SEI antes de interpolar em HTML
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 /**
  * Opens a modal to generate a memo (memorando) using AI
@@ -20,8 +25,8 @@ export function openMemoGenerator(processo, onGenerated) {
             </div>
             
             <div style="background: var(--input-bg); padding: 12px; border-radius: 6px; margin-bottom: 20px; border-left: 3px solid var(--accent-color);">
-                <strong style="color: var(--text-color);">Processo:</strong> ${processo.protocolo}
-                ${processo.tipo ? `<br><span style="color: var(--secondary-text-color); font-size: 0.9em;">${processo.tipo}</span>` : ''}
+                <strong style="color: var(--text-color);">Processo:</strong> ${escapeHtml(processo.protocolo)}
+                ${processo.tipo ? `<br><span style="color: var(--secondary-text-color); font-size: 0.9em;">${escapeHtml(processo.tipo)}</span>` : ''}
             </div>
             
             <form id="memoForm" style="display: flex; flex-direction: column; gap: 15px;">
@@ -62,7 +67,7 @@ export function openMemoGenerator(processo, onGenerated) {
                         name="unidade" 
                         class="app-input" 
                         placeholder="Ex: Diretoria de Administração"
-                        value="${processo.unidade || ''}"
+                        value="${escapeHtml(processo.unidade || '')}"
                         style="width: 100%; margin: 0;"
                     >
                 </div>
@@ -77,7 +82,7 @@ export function openMemoGenerator(processo, onGenerated) {
                         rows="4" 
                         placeholder="Forneça detalhes sobre o que o memorando deve comunicar..."
                         style="width: 100%; margin: 0; resize: vertical;"
-                    >${processo.descricao || ''}</textarea>
+                    >${escapeHtml(processo.descricao || '')}</textarea>
                     <small style="color: var(--secondary-text-color); font-size: 0.85em;">
                         Opcional: adicione informações que devem constar no memorando
                     </small>
@@ -134,9 +139,12 @@ export function openMemoGenerator(processo, onGenerated) {
     document.body.appendChild(modal);
 
     // Add spinner animation
-    const style = document.createElement('style');
-    style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
-    document.head.appendChild(style);
+    if (!document.getElementById('memoGeneratorSpinStyle')) {
+        const style = document.createElement('style');
+        style.id = 'memoGeneratorSpinStyle';
+        style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+        document.head.appendChild(style);
+    }
 
     const form = modal.querySelector('#memoForm');
     const resultDiv = modal.querySelector('#memoResult');
@@ -174,13 +182,14 @@ export function openMemoGenerator(processo, onGenerated) {
                 body: JSON.stringify(data)
             });
 
-            const result = await response.json();
+            let result = null;
+            try { result = await response.json(); } catch (parseError) { result = null; }
 
-            if (!response.ok || !result.success) {
-                throw new Error(result.error || 'Erro ao gerar memorando');
+            if (!response.ok || !result || !result.success) {
+                throw new Error((result && result.error) || `Serviço de IA indisponível (HTTP ${response.status})`);
             }
 
-            memoTextArea.value = result.texto;
+            memoTextArea.value = result.texto || '';
             modal.querySelector('#memoStats').textContent =
                 `${result.tokens} tokens • Modelo: ${result.modelo}`;
 
@@ -215,7 +224,7 @@ export function openMemoGenerator(processo, onGenerated) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `memorando_${processo.protocolo.replace(/\//g, '_')}.txt`;
+        a.download = `memorando_${String(processo.protocolo || 'sei').replace(/[\\/:*?"<>|]/g, '_')}.txt`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

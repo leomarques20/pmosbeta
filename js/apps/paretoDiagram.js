@@ -1,12 +1,41 @@
 import { generateId, showNotification } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
+// Escapa texto do usuário antes de inseri-lo via innerHTML
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+/**
+ * Chart.js não é carregado pelo index.html; carrega sob demanda (uma única vez).
+ * @param {Function} callback – chamada quando window.Chart estiver disponível
+ */
+function ensureChartLibrary(callback) {
+    if (window.Chart) { callback(); return; }
+    if (window._chartLoadFailed) return;
+    if (window._chartLoadingQueue) { window._chartLoadingQueue.push(callback); return; }
+    window._chartLoadingQueue = [callback];
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+    script.onload = () => {
+        const queue = window._chartLoadingQueue || [];
+        window._chartLoadingQueue = null;
+        queue.forEach(cb => cb());
+    };
+    script.onerror = () => {
+        showNotification('Falha ao carregar biblioteca de gráficos.', 4000);
+        window._chartLoadFailed = true;
+        window._chartLoadingQueue = null;
+    };
+    document.head.appendChild(script);
+}
+
 /**
  * Aplicativo Pareto – Diagrama de Pareto para análise de causas / categorias.
  */
 export function openParetoDiagram() {
     const uniqueSuffix = generateId('pareto');
-    const winId = window.windowManager.createWindow('Diagrama de Pareto', { width: '1100px', height: '720px', appType: 'pareto-diagram' });
+    const winId = window.windowManager.createWindow('Diagrama de Pareto', '', { width: '1100px', height: '720px', appType: 'pareto-diagram' });
     const winData = window.windowManager.windows.get(winId);
     if (!winData) return winId;
 
@@ -14,7 +43,7 @@ export function openParetoDiagram() {
         <div class="app-toolbar">
             ${getStandardAppToolbarHTML()}
         </div>
-        <div class="pareto-layout">
+        <div class="pareto-layout" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; padding:10px; overflow:auto;">
             <div class="pareto-form-panel">
                 <h4><i class="fas fa-list"></i> Dados do Diagrama de Pareto</h4>
                 <div class="pareto-form-grid">
@@ -73,7 +102,9 @@ export function openParetoDiagram() {
             </div>
             <div class="pareto-chart-panel">
                 <h4><i class="fas fa-chart-line"></i> Gráfico de Pareto</h4>
-                <canvas id="paretoChart_${uniqueSuffix}" height="260"></canvas>
+                <div style="position:relative; height:320px;">
+                    <canvas id="paretoChart_${uniqueSuffix}"></canvas>
+                </div>
                 <p class="pareto-hint">
                     Dica: foque nas poucas categorias que concentram a maior parte do impacto (regra 80/20).
                 </p>
@@ -109,18 +140,28 @@ export function openParetoDiagram() {
 
         loadData: function(dataString, fileMeta) {
             try {
-                const data = JSON.parse(dataString);
-                this.items = Array.isArray(data.items) ? data.items : [];
-                if (data.valueType && this.valueTypeSelect) {
+                const data = typeof dataString === 'string' ? JSON.parse(dataString) : dataString;
+                if (!data || typeof data !== 'object' || !Array.isArray(data.items)) {
+                    showNotification("Formato de arquivo inválido para o Diagrama de Pareto.", 3000);
+                    return;
+                }
+                this.items = data.items
+                    .filter(it => it && typeof it === 'object')
+                    .map(it => ({
+                        id: it.id != null ? String(it.id) : generateId('pareto_item'),
+                        category: String(it.category ?? ''),
+                        value: Number(it.value) || 0
+                    }));
+                if (['frequencia', 'impacto'].includes(data.valueType) && this.valueTypeSelect) {
                     this.valueTypeSelect.value = data.valueType;
                 }
                 if (typeof data.keepOriginalOrder === 'boolean') {
                     this.keepOriginalOrderCheckbox.checked = data.keepOriginalOrder;
                 }
-                this.fileId = fileMeta.id;
-                this.markClean();
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
+                this.fileId = fileMeta?.id ?? null;
                 this.renderTableAndChart();
+                this.markClean();
+                if (fileMeta?.name) window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
             } catch (e) {
                 console.error(e);
                 showNotification("Erro ao ler arquivo do Diagrama de Pareto.", 3000);
@@ -129,12 +170,13 @@ export function openParetoDiagram() {
 
         renderTableAndChart: function() {
             // Ordenar (quando configurado) e calcular acumulado
-            let itemsForDisplay = [...this.items];
+            // Guarda o índice original para que editar/excluir atuem no item correto mesmo após ordenar
+            let itemsForDisplay = this.items.map((item, originalIndex) => ({ item, originalIndex }));
             if (!this.keepOriginalOrderCheckbox.checked) {
-                itemsForDisplay.sort((a, b) => (b.value || 0) - (a.value || 0));
+                itemsForDisplay.sort((a, b) => (Number(b.item.value) || 0) - (Number(a.item.value) || 0));
             }
 
-            const total = itemsForDisplay.reduce((sum, it) => sum + (Number(it.value) || 0), 0);
+            const total = itemsForDisplay.reduce((sum, entry) => sum + (Number(entry.item.value) || 0), 0);
             let running = 0;
 
             this.tableBody.innerHTML = '';
@@ -142,7 +184,7 @@ export function openParetoDiagram() {
             const values = [];
             const cumulativePercents = [];
 
-            itemsForDisplay.forEach((item, index) => {
+            itemsForDisplay.forEach(({ item, originalIndex }, index) => {
                 const value = Number(item.value) || 0;
                 running += value;
                 const percent = total > 0 ? (value / total) * 100 : 0;
@@ -155,15 +197,15 @@ export function openParetoDiagram() {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${index + 1}</td>
-                    <td>${item.category || ''}</td>
+                    <td>${escapeHtml(item.category || '')}</td>
                     <td>${value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                     <td>${percent.toFixed(1)}%</td>
                     <td>${cumulative.toFixed(1)}%</td>
                     <td>
-                        <button class="action-button" data-action="edit" data-index="${index}" title="Editar">
+                        <button class="action-button" data-action="edit" data-index="${originalIndex}" title="Editar">
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="action-button danger" data-action="delete" data-index="${index}" title="Excluir">
+                        <button class="action-button danger" data-action="delete" data-index="${originalIndex}" title="Excluir">
                             <i class="fas fa-trash-alt"></i>
                         </button>
                     </td>
@@ -175,11 +217,14 @@ export function openParetoDiagram() {
             this.totalPercentCell.textContent = total > 0 ? '100%' : '0%';
 
             this.updateChart(itemsForDisplay, labels, values, cumulativePercents);
-            this.markDirty();
         },
 
         updateChart: function(itemsForDisplay, labels, values, cumulativePercents) {
-            if (!(window.Chart && this.chartCanvas)) {
+            if (!this.chartCanvas || !this.chartCanvas.isConnected) {
+                return;
+            }
+            if (!window.Chart) {
+                ensureChartLibrary(() => this.renderTableAndChart());
                 return;
             }
 
@@ -270,6 +315,7 @@ export function openParetoDiagram() {
             });
             this.categoryInput.value = '';
             this.valueInput.value = '';
+            this.markDirty();
             this.renderTableAndChart();
         },
 
@@ -280,6 +326,7 @@ export function openParetoDiagram() {
             this.valueInput.value = item.value != null ? String(item.value) : '';
             // Remover temporariamente para evitar duplicação
             this.items.splice(index, 1);
+            this.markDirty();
             this.renderTableAndChart();
         },
 
@@ -288,6 +335,7 @@ export function openParetoDiagram() {
             if (!item) return;
             if (!confirm(`Deseja remover a categoria "${item.category}" do diagrama?`)) return;
             this.items.splice(index, 1);
+            this.markDirty();
             this.renderTableAndChart();
         },
 
@@ -317,8 +365,8 @@ export function openParetoDiagram() {
             appState.valueInput.focus();
         }
     });
-    appState.valueTypeSelect.addEventListener('change', () => appState.renderTableAndChart());
-    appState.keepOriginalOrderCheckbox.addEventListener('change', () => appState.renderTableAndChart());
+    appState.valueTypeSelect.addEventListener('change', () => { appState.markDirty(); appState.renderTableAndChart(); });
+    appState.keepOriginalOrderCheckbox.addEventListener('change', () => { appState.markDirty(); appState.renderTableAndChart(); });
 
     appState.tableBody.addEventListener('click', (ev) => {
         const button = ev.target.closest('button.action-button');
@@ -331,6 +379,8 @@ export function openParetoDiagram() {
             appState.deleteItemAtIndex(index);
         }
     });
+
+    appState.renderTableAndChart();
 
     return winId;
 }

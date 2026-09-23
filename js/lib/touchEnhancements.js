@@ -1,16 +1,23 @@
-window.addEventListener('load', () => {
-    // This needs to be delegated since windows are created dynamically
-    document.body.addEventListener('pointerdown', e => {
-        const titleBar = e.target.closest('.title-bar');
-        if (titleBar) {
-            handleTitleBarPointerDown(e, titleBar);
-        }
-        const resizeHandle = e.target.closest('.resize-handle');
-        if (resizeHandle) {
-            handleResizeHandlePointerDown(e, resizeHandle);
-        }
-    });
+// Registrado imediatamente (e não no 'load', que espera todos os recursos externos/CDN).
+// This needs to be delegated since windows are created dynamically
+document.addEventListener('pointerdown', e => {
+    if (!(e.target instanceof Element)) return;
+    const titleBar = e.target.closest('.title-bar');
+    if (titleBar) {
+        handleTitleBarPointerDown(e, titleBar);
+    }
+    const resizeHandle = e.target.closest('.resize-handle');
+    if (resizeHandle) {
+        handleResizeHandlePointerDown(e, resizeHandle);
+    }
 });
+
+// Arrastar/redimensionar com mouse já é tratado pelo WindowManager (main.js);
+// aqui cuidamos apenas de toque/caneta, evitando dois manipuladores movendo a mesma janela.
+function isWindowLockedForPointerDrag(win) {
+    const stageManager = window.windowManager && window.windowManager.stageManager;
+    return win.classList.contains('maximized') || (stageManager && stageManager.isActive && stageManager.focusedAppId === win.id);
+}
 
 function handleTitleBarPointerDown(e, titleBar) {
     // *** CORREÇÃO ADICIONADA AQUI ***
@@ -30,9 +37,14 @@ function handleTitleBarPointerDown(e, titleBar) {
     const lastTap = parseFloat(titleBar.dataset.lastTap || 0);
     if (now - lastTap < 300) {
         // Use o WindowManager para garantir que a lógica de maximizar/restaurar seja a correta
-        window.windowManager.maximizeWindow(win.id);
+        titleBar.dataset.lastTap = 0;
+        if (window.windowManager) window.windowManager.maximizeWindow(win.id);
+        return;
     }
     titleBar.dataset.lastTap = now;
+
+    if (e.pointerType === 'mouse' || isWindowLockedForPointerDrag(win)) return;
+    if (window.windowManager) window.windowManager.makeActive(win.id);
 
     // Start dragging logic
     dragging = true;
@@ -43,7 +55,7 @@ function handleTitleBarPointerDown(e, titleBar) {
     origY = rect.top;
     
     win.classList.add('dragging');
-    titleBar.setPointerCapture(e.pointerId);
+    try { titleBar.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
 
     const onPointerMove = (moveEvent) => {
         if (!dragging) return;
@@ -57,7 +69,7 @@ function handleTitleBarPointerDown(e, titleBar) {
         if (!dragging) return;
         dragging = false;
         win.classList.remove('dragging');
-        titleBar.releasePointerCapture(e.pointerId);
+        try { titleBar.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         
         // Cleanup listeners
         document.removeEventListener('pointermove', onPointerMove);
@@ -74,6 +86,7 @@ function handleTitleBarPointerDown(e, titleBar) {
 function handleResizeHandlePointerDown(e, resizeHandle) {
     const win = resizeHandle.closest('.window');
     if (!win || e.button !== 0) return;
+    if (e.pointerType === 'mouse' || isWindowLockedForPointerDrag(win)) return;
 
     resizeHandle.style.touchAction = 'none';
     let resizing = false, startX, startY, origW, origH;
@@ -85,7 +98,7 @@ function handleResizeHandlePointerDown(e, resizeHandle) {
     origW = rect.width;
     origH = rect.height;
     win.classList.add('resizing');
-    resizeHandle.setPointerCapture(e.pointerId);
+    try { resizeHandle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
 
     const onPointerMove = (moveEvent) => {
         if (!resizing) return;
@@ -103,7 +116,7 @@ function handleResizeHandlePointerDown(e, resizeHandle) {
         if (!resizing) return;
         resizing = false;
         win.classList.remove('resizing');
-        resizeHandle.releasePointerCapture(e.pointerId);
+        try { resizeHandle.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         
         // Cleanup
         document.removeEventListener('pointermove', onPointerMove);

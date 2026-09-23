@@ -16,6 +16,11 @@ export class AIClient {
       body: JSON.stringify({ prompt, context: this.appContext }),
       signal: this.abortController.signal
     });
+    if (!res.ok || !res.body) {
+      let msg = `HTTP ${res.status}`;
+      try { const data = await res.json(); if (data && data.error) msg = data.error; } catch { }
+      throw new Error(msg);
+    }
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = '';
     for (;;) {
@@ -25,13 +30,17 @@ export class AIClient {
       const lines = buffer.split('\n'); buffer = lines.pop();
       for (const line of lines) {
         if (!line.trim() || !line.startsWith('data:')) continue;
-        yield JSON.parse(line.slice(5));
+        try { yield JSON.parse(line.slice(5)); } catch { /* linha malformada: ignora */ }
       }
     }
   }
   stop(){ this.abortController?.abort(); }
   async _getIdToken(){
-    try { return await firebase.auth().currentUser.getIdToken(); } catch { return "anon"; }
+    // O app usa o SDK modular do Firebase (js/auth.js) — não existe global `firebase`.
+    try {
+      const user = window.authManager?.auth?.currentUser;
+      return user ? await user.getIdToken() : "";
+    } catch { return ""; }
   }
   async complete(fields) {
     const prompt = `Preencha os campos (JSON only): ${JSON.stringify(fields)}`;

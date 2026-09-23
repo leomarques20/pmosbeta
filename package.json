@@ -1,4 +1,8 @@
 {
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@sparticuz/chromium": "^141.0.0",
     "@google/generative-ai": "^0.21.0",

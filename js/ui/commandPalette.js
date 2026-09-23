@@ -5,6 +5,28 @@
  * Permite acesso rápido a qualquer funcionalidade do sistema
  */
 
+// `showNotification` é exportada por js/main.js (não é global). Este arquivo é um
+// script clássico, então usa um fallback seguro.
+function notify(message, duration = 2000) {
+    if (typeof window.showNotification === 'function') window.showNotification(message, duration);
+    else console.info('[PMOS]', message);
+}
+
+function launchApp(action) {
+    const fn = window.windowManager?.appLaunchActions?.[action];
+    if (typeof fn === 'function') fn();
+    else notify('Aplicativo indisponível no momento.', 2000);
+}
+
+function readRecentCommands() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('pmos_recent_commands') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+        return [];
+    }
+}
+
 class CommandPalette {
     constructor() {
         this.isOpen = false;
@@ -19,10 +41,10 @@ class CommandPalette {
     buildCommandIndex() {
         return [
             // Navegação
-            { id: 'open-gantt', label: 'Abrir Cronograma Gantt', icon: '📊', category: 'Apps', action: () => window.windowManager.appLaunchActions['open-gantt-chart'](), keywords: ['cronograma', 'timeline', 'schedule'] },
-            { id: 'open-kanban', label: 'Abrir Kanban Board', icon: '📋', category: 'Apps', action: () => window.windowManager.appLaunchActions['open-kanban-board'](), keywords: ['board', 'cards', 'sprints'] },
-            { id: 'open-swot', label: 'Abrir Análise SWOT', icon: '🎯', category: 'Apps', action: () => window.windowManager.appLaunchActions['open-swot-analysis'](), keywords: ['estrategia', 'forcas', 'fraquezas'] },
-            { id: 'open-mindmap', label: 'Abrir Mapa Mental', icon: '🧠', category: 'Apps', action: () => window.windowManager.appLaunchActions['open-mind-map'](), keywords: ['brainstorm', 'ideias'] },
+            { id: 'open-gantt', label: 'Abrir Cronograma Gantt', icon: '📊', category: 'Apps', action: () => launchApp('open-gantt-chart'), keywords: ['cronograma', 'timeline', 'schedule'] },
+            { id: 'open-kanban', label: 'Abrir Kanban Board', icon: '📋', category: 'Apps', action: () => launchApp('open-kanban-board'), keywords: ['board', 'cards', 'sprints'] },
+            { id: 'open-swot', label: 'Abrir Análise SWOT', icon: '🎯', category: 'Apps', action: () => launchApp('open-swot-analysis'), keywords: ['estrategia', 'forcas', 'fraquezas'] },
+            { id: 'open-mindmap', label: 'Abrir Mapa Mental', icon: '🧠', category: 'Apps', action: () => launchApp('open-mind-map'), keywords: ['brainstorm', 'ideias'] },
 
             // Criação rápida
             { id: 'new-task', label: 'Criar nova tarefa', icon: '✅', category: 'Ações', action: () => this.createNewTask(), keywords: ['task', 'todo', 'atividade'] },
@@ -35,14 +57,14 @@ class CommandPalette {
             { id: 'ai-recommend', label: 'IA: Sugerir próximas ações', icon: '💡', category: 'IA', action: () => this.aiRecommendActions(), keywords: ['sugestao', 'recomendacao'] },
 
             // Sistema
-            { id: 'toggle-dark', label: 'Alternar modo escuro', icon: '🌙', category: 'Sistema', action: () => window.themeManager.toggleDarkMode(), keywords: ['dark', 'light', 'theme'] },
+            { id: 'toggle-dark', label: 'Alternar modo escuro', icon: '🌙', category: 'Sistema', action: () => window.themeManager?.toggleDarkMode(), keywords: ['dark', 'light', 'theme'] },
             { id: 'show-shortcuts', label: 'Mostrar atalhos de teclado', icon: '⌨️', category: 'Ajuda', action: () => this.showShortcuts(), keywords: ['atalhos', 'keyboard', 'shortcuts'] },
-            { id: 'stage-manager', label: 'Ativar Stage Manager', icon: '🔳', category: 'Sistema', action: () => window.windowManager.stageManager.toggle(), keywords: ['multitask', 'windows'] },
+            { id: 'stage-manager', label: 'Ativar Stage Manager', icon: '🔳', category: 'Sistema', action: () => window.windowManager?.stageManager?.toggle(), keywords: ['multitask', 'windows'] },
 
             // Ferramentas de Qualidade
-            { id: 'open-pdca', label: 'Abrir Ciclo PDCA', icon: '♻️', category: 'Qualidade', action: () => window.windowManager.appLaunchActions['open-pdca-tool'](), keywords: ['melhoria', 'continua'] },
-            { id: 'open-ishikawa', label: 'Abrir Diagrama Ishikawa', icon: '🐟', category: 'Qualidade', action: () => window.windowManager.appLaunchActions['open-ishikawa-diagram'](), keywords: ['causa', 'efeito', 'espinha'] },
-            { id: 'open-5w2h', label: 'Abrir Ferramenta 5W2H', icon: '❓', category: 'Qualidade', action: () => window.windowManager.appLaunchActions['open-5w2h-tool'](), keywords: ['plano', 'acao'] }
+            { id: 'open-pdca', label: 'Abrir Ciclo PDCA', icon: '♻️', category: 'Qualidade', action: () => launchApp('open-pdca-tool'), keywords: ['melhoria', 'continua'] },
+            { id: 'open-ishikawa', label: 'Abrir Diagrama Ishikawa', icon: '🐟', category: 'Qualidade', action: () => launchApp('open-ishikawa-diagram'), keywords: ['causa', 'efeito', 'espinha'] },
+            { id: 'open-5w2h', label: 'Abrir Ferramenta 5W2H', icon: '❓', category: 'Qualidade', action: () => launchApp('open-5w2h-tool'), keywords: ['plano', 'acao'] }
         ];
     }
 
@@ -87,7 +109,7 @@ class CommandPalette {
 
     registerShortcuts() {
         document.addEventListener('keydown', (e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
                 e.preventDefault();
                 this.toggle();
             }
@@ -185,6 +207,7 @@ class CommandPalette {
                 break;
             case 'Enter':
                 e.preventDefault();
+                if (e.isComposing) break;
                 this.executeCommand(this.selectedIndex);
                 break;
             case 'Escape':
@@ -209,14 +232,19 @@ class CommandPalette {
     }
 
     getRecentCommands() {
-        const recent = JSON.parse(localStorage.getItem('pmos_recent_commands') || '[]');
-        return this.commands.filter(cmd => recent.includes(cmd.id)).slice(0, 5);
+        const recent = readRecentCommands();
+        const recentCommands = recent
+            .map(id => this.commands.find(cmd => cmd.id === id))
+            .filter(Boolean)
+            .slice(0, 5);
+        // Sem histórico: mostra os primeiros comandos em vez de "Nenhum comando encontrado".
+        return recentCommands.length ? recentCommands : this.commands.slice(0, 8);
     }
 
     saveRecentCommand(cmdId) {
-        let recent = JSON.parse(localStorage.getItem('pmos_recent_commands') || '[]');
+        let recent = readRecentCommands();
         recent = [cmdId, ...recent.filter(id => id !== cmdId)].slice(0, 10);
-        localStorage.setItem('pmos_recent_commands', JSON.stringify(recent));
+        try { localStorage.setItem('pmos_recent_commands', JSON.stringify(recent)); } catch (e) { /* armazenamento indisponível */ }
     }
 
     addStyles() {
@@ -325,12 +353,16 @@ class CommandPalette {
     }
 
     // Ações helper
-    createNewTask() { showNotification('Criar tarefa - em desenvolvimento', 2000); }
-    createNewProject() { showNotification('Criar projeto - em desenvolvimento', 2000); }
-    createNewOKR() { window.windowManager.appLaunchActions['open-okr-tracker'](); }
-    openAIChat() { document.getElementById('pmos-ai-toggle')?.click(); }
-    aiAnalyzeProject() { showNotification('IA analisando projeto...', 2000); }
-    aiRecommendActions() { showNotification('IA gerando recomendações...', 2000); }
+    createNewTask() { notify('Criar tarefa - em desenvolvimento', 2000); }
+    createNewProject() { notify('Criar projeto - em desenvolvimento', 2000); }
+    createNewOKR() { launchApp('open-okr-tracker'); }
+    openAIChat() {
+        const toggle = document.getElementById('pmos-ai-toggle');
+        if (toggle) toggle.click();
+        else notify('Abra um aplicativo e use o painel de IA dele.', 2500);
+    }
+    aiAnalyzeProject() { notify('IA analisando projeto...', 2000); }
+    aiRecommendActions() { notify('IA gerando recomendações...', 2000); }
     showShortcuts() { alert('Atalhos:\nCMD+K - Command Palette\nCMD+. - IA Assistant\nCMD+S - Salvar'); }
 }
 

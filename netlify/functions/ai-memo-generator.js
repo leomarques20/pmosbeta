@@ -25,8 +25,24 @@ exports.handler = async (event) => {
         };
     }
 
+    let payload;
     try {
-        const { destinatario, assunto, contexto, numeroProcesso, unidade } = JSON.parse(event.body);
+        payload = JSON.parse(event.body || '{}');
+    } catch (e) {
+        return {
+            statusCode: 400,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({ success: false, error: 'Corpo da requisição inválido.' })
+        };
+    }
+
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
+    try {
+        const { destinatario, assunto, contexto, numeroProcesso, unidade } = payload || {};
 
         // Validação
         if (!destinatario || !assunto) {
@@ -37,6 +53,7 @@ exports.handler = async (event) => {
                     'Access-Control-Allow-Origin': '*'
                 },
                 body: JSON.stringify({
+                    success: false,
                     error: 'Destinatário e assunto são obrigatórios'
                 })
             };
@@ -52,13 +69,14 @@ exports.handler = async (event) => {
                     'Access-Control-Allow-Origin': '*'
                 },
                 body: JSON.stringify({
+                    success: false,
                     error: 'API key não configurada. Configure GEMINI_API_KEY nas variáveis de ambiente.'
                 })
             };
         }
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: modelName });
 
         // Prompt otimizado para memorandos oficiais
         const prompt = `Você é um assistente especializado em redigir memorandos oficiais para órgãos públicos brasileiros.
@@ -83,7 +101,7 @@ INSTRUÇÕES:
 
 FORMATO ESPERADO:
 
-MEMORANDO Nº ___/2024-[SIGLA DA UNIDADE]
+MEMORANDO Nº ___/${new Date().getFullYear()}-[SIGLA DA UNIDADE]
 
 De: [Unidade remetente]
 Para: ${destinatario}
@@ -120,14 +138,14 @@ Gere APENAS o texto do memorando, sem comentários ou explicações adicionais:`
             body: JSON.stringify({
                 success: true,
                 texto: texto,
-                modelo: 'gemini-pro',
+                modelo: modelName,
                 tokens: Math.ceil(texto.length / 4), // Estimativa
                 timestamp: new Date().toISOString()
             })
         };
 
     } catch (error) {
-        console.error('Erro ao gerar memorando:', error);
+        console.error('Erro ao gerar memorando:', error && error.message);
 
         return {
             statusCode: 500,
@@ -137,8 +155,7 @@ Gere APENAS o texto do memorando, sem comentários ou explicações adicionais:`
             },
             body: JSON.stringify({
                 success: false,
-                error: error.message || 'Erro ao gerar memorando',
-                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                error: 'Erro ao gerar memorando com a IA. Tente novamente.'
             })
         };
     }

@@ -238,7 +238,13 @@
       body: JSON.stringify(body)
     });
 
-    const data = await resp.json();
+    let data = null;
+    try { data = await resp.json(); } catch { data = null; }
+    if (!resp.ok) {
+      const msg = (data && data.error) || `HTTP ${resp.status}`;
+      throw new Error(resp.status === 404 ? "Serviço de IA indisponível neste ambiente (use o deploy no Netlify ou `netlify dev`)." : msg);
+    }
+    if (!data) return "A IA não retornou uma resposta válida.";
     let text = "";
     try {
       text =
@@ -288,9 +294,10 @@
         "project": "open-project-tasks",
         "files": "open-file-system"
       };
+      if (!appName) return { ok: false, reason: "app-not-found", appName };
       const action = map[appName.toLowerCase()] || map[Object.keys(map).find(k => appName.toLowerCase().includes(k))];
 
-      if (action && window.windowManager && window.windowManager.appLaunchActions[action]) {
+      if (action && window.windowManager && window.windowManager.appLaunchActions && window.windowManager.appLaunchActions[action]) {
         window.windowManager.appLaunchActions[action]();
         return { ok: true, opened: appName };
       }
@@ -311,7 +318,7 @@
       const app = getAppInstance("kanban-board");
       if (!app) return { ok: false, reason: "kanban-not-open" };
 
-      const col = app.boardData.columns.find(c => c.title.toLowerCase().includes(columnTitle.toLowerCase()));
+      const col = app.boardData.columns.find(c => (c.title || "").toLowerCase().includes((columnTitle || "").toLowerCase()));
       if (!col) return { ok: false, reason: "column-not-found", columnTitle };
 
       col.cards.push({
@@ -339,7 +346,7 @@
         "ameaças": "threatsEl", "threats": "threatsEl"
       };
 
-      const fieldName = map[quadrant.toLowerCase()];
+      const fieldName = map[(quadrant || "").toLowerCase()];
       if (!fieldName || !app[fieldName]) return { ok: false, reason: "quadrant-invalid", quadrant };
 
       const el = app[fieldName];
@@ -370,7 +377,8 @@
       const list = document.querySelector(listSelector) || document.querySelector("#tasks, .tasks, [data-role='tasks']");
       const item = document.createElement("div");
       item.className = "task-item ai-created";
-      item.innerHTML = `<strong>${title || "(sem título)"}</strong><br><small>${description}</small><br><em>${assignee}</em> • prazo ${deadline} • ${status}`;
+      const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      item.innerHTML = `<strong>${esc(title || "(sem título)")}</strong><br><small>${esc(description)}</small><br><em>${esc(assignee)}</em> • prazo ${esc(deadline)} • ${esc(status)}`;
       (list || document.body).appendChild(item);
       return { ok: true, title };
     },
@@ -378,8 +386,10 @@
       const items = Array.from(document.querySelectorAll(".task-item, [data-task]"));
       const found = items.find(el => (el.textContent || "").toLowerCase().includes((title || "").toLowerCase()));
       if (found) {
-        if (newTitle) found.querySelector("strong")?.innerText = newTitle;
-        if (description) found.querySelector("small")?.innerText = description;
+        const strongEl = found.querySelector("strong");
+        const smallEl = found.querySelector("small");
+        if (newTitle && strongEl) strongEl.textContent = newTitle;
+        if (description && smallEl) smallEl.textContent = description;
         if (status) found.setAttribute("data-status", status);
         return { ok: true, updated: true };
       }
@@ -498,7 +508,7 @@
         const { action, args = {}, confirm = false, explain = "" } = act || {};
         if (!action) continue;
         if (confirm || STATE.dryRun) { results.push({ action, args, confirm: true, explain: explain || "Confirme para executar." }); continue; }
-        if (typeof PMOSActionAPI[action] === "function") {
+        if (Object.prototype.hasOwnProperty.call(PMOSActionAPI, action) && typeof PMOSActionAPI[action] === "function") {
           const r = PMOSActionAPI[action](args); console.log("[PMOS_AI_LOG]", { action, args, result: r });
           results.push({ action, args, result: r, explain });
         } else {
@@ -512,6 +522,14 @@
   }
 
   async function quickAction(mode) {
+    try {
+      await runQuickAction(mode);
+    } catch (e) {
+      pushMsg("assistant", "Erro ao chamar IA: " + (e?.message || String(e)));
+    }
+  }
+
+  async function runQuickAction(mode) {
     if (mode === "explainErrors") {
       const data = PMOSActionAPI.explainConsoleError();
       const raw = await callAI(`Explique estes erros de console e dê passos de correção: ${JSON.stringify(data)}`);

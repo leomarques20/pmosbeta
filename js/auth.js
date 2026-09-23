@@ -1,21 +1,41 @@
 // Importações do Firebase
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
-import { GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
+// Os módulos do Firebase são carregados dinamicamente (ver loadFirebaseModules) para que
+// uma falha no CDN ou a ausência de configuração não impeça o PMOS de iniciar em modo convidado.
 import { initializeWebOS, showNotification, generateId } from './main.js';
 
+const FIREBASE_CDN = "https://www.gstatic.com/firebasejs/11.9.1";
+let initializeApp, getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword,
+    signInWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup;
+let getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc;
+
+async function loadFirebaseModules() {
+    const [appMod, authMod, firestoreMod] = await Promise.all([
+        import(`${FIREBASE_CDN}/firebase-app.js`),
+        import(`${FIREBASE_CDN}/firebase-auth.js`),
+        import(`${FIREBASE_CDN}/firebase-firestore.js`)
+    ]);
+    ({ initializeApp } = appMod);
+    ({ getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+        sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup } = authMod);
+    ({ getFirestore, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc } = firestoreMod);
+}
+
 // Configuração da API do Firebase
+const env = (window.env && typeof window.env === 'object') ? window.env : {};
 const ApiConfig = {
     firebase: {
-        apiKey: window.env.FIREBASE_API_KEY,
-        authDomain: window.env.FIREBASE_AUTH_DOMAIN,
-        projectId: window.env.FIREBASE_PROJECT_ID,
-        storageBucket: window.env.FIREBASE_STORAGE_BUCKET,
-        messagingSenderId: window.env.FIREBASE_MESSAGING_SENDER_ID,
-        appId: window.env.FIREBASE_APP_ID,
+        apiKey: env.FIREBASE_API_KEY,
+        authDomain: env.FIREBASE_AUTH_DOMAIN,
+        projectId: env.FIREBASE_PROJECT_ID,
+        storageBucket: env.FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: env.FIREBASE_MESSAGING_SENDER_ID,
+        appId: env.FIREBASE_APP_ID,
     }
 };
+
+function hasFirebaseConfig() {
+    return Boolean(ApiConfig.firebase.apiKey && ApiConfig.firebase.projectId && ApiConfig.firebase.appId);
+}
 
 /**
  * Gerencia a interação com o Cloud Firestore.
@@ -74,6 +94,7 @@ class FirestoreManager {
             };
 
             await setDoc(docRef, dataToSave, { merge: true });
+            document.dispatchEvent(new CustomEvent('pmos:fileschanged'));
             
             return { id: docId, name: fileMetadata.name };
         } catch (error) {
@@ -90,9 +111,11 @@ class FirestoreManager {
                 name: newName,
                 modifiedTime: Date.now()
             });
+            return true;
         } catch (error) {
              console.error("Erro ao renomear arquivo:", error);
              showNotification("Erro ao renomear arquivo.", 4000);
+             return false;
         }
     }
     
@@ -100,9 +123,11 @@ class FirestoreManager {
          try {
             const docRef = doc(this.filesCollection, fileId);
             await deleteDoc(docRef);
+            return true;
         } catch (error) {
              console.error("Erro ao excluir arquivo:", error);
              showNotification("Erro ao excluir arquivo.", 4000);
+             return false;
         }
     }
 }
@@ -112,33 +137,73 @@ class FirestoreManager {
  */
 class AuthManager {
     toggleCloudButtons(enabled){ document.querySelectorAll(".cloud-required").forEach(btn => btn.disabled = !enabled); }
-    openLoginModal(){ document.body.classList.add("show-login"); }
+    openLoginModal(){
+        if (this.user) {
+            showNotification(`Você já está conectado como ${this.user.email || 'usuário'}.`, 3000);
+            return;
+        }
+        if (!this.firebaseReady) {
+            showNotification(this.firebaseError
+                ? "Login indisponível no momento. Você pode continuar usando o PMOS como convidado."
+                : "Conectando ao serviço de login... tente novamente em instantes.", 4000);
+            return;
+        }
+        document.body.classList.add("show-login");
+    }
     closeLoginModal(){ document.body.classList.remove("show-login"); }
     constructor() {
+        this.firebaseApp = null;
+        this.auth = null;
+        this.db = null;
+        this.user = null;
+        this.googleProvider = null;
+        this.firebaseReady = false;
+        this.firebaseError = null;
+    }
+
+    async setupFirebase() {
+        if (!hasFirebaseConfig()) {
+            throw new Error("Configuração do Firebase ausente (window.env).");
+        }
+        await loadFirebaseModules();
         this.firebaseApp = initializeApp(ApiConfig.firebase);
         this.auth = getAuth(this.firebaseApp);
         this.db = getFirestore(this.firebaseApp);
-        this.user = null;
         this.googleProvider = new GoogleAuthProvider();
+        this.firebaseReady = true;
+        onAuthStateChanged(this.auth, this.handleAuthState.bind(this));
     }
 
     init() {
         const loginOpenBtn = document.getElementById('loginOpenBtn');
         if (loginOpenBtn) loginOpenBtn.onclick = () => this.openLoginModal();
         document.addEventListener('keydown', (e) => { if(e.key==='Escape') this.closeLoginModal(); });
-        onAuthStateChanged(this.auth, this.handleAuthState.bind(this));
-        
-        document.getElementById('loginBtn').onclick = () => this.signInWithEmail();
-        document.getElementById('registerBtn').onclick = () => this.registerWithEmail();
-        document.getElementById('googleLoginBtn').onclick = () => this.signInWithGoogle();
-        document.getElementById('logoutBtn').onclick = () => this.signOut();
-        document.getElementById('forgotPasswordLink').onclick = (e) => {
+        const loginContainer = document.getElementById('loginContainer');
+        if (loginContainer) {
+            // Clique fora do formulário fecha o modal de login
+            loginContainer.addEventListener('click', (e) => { if (e.target === loginContainer) this.closeLoginModal(); });
+        }
+
+        const bind = (id, handler) => { const el = document.getElementById(id); if (el) el.onclick = handler; };
+        bind('loginBtn', () => this.signInWithEmail());
+        bind('registerBtn', () => this.registerWithEmail());
+        bind('googleLoginBtn', () => this.signInWithGoogle());
+        bind('logoutBtn', () => this.signOut());
+        bind('forgotPasswordLink', (e) => {
             e.preventDefault();
             this.sendPasswordReset();
-        };
+        });
+
+        // Começa como convidado; o estado real chega via onAuthStateChanged, se o Firebase carregar.
+        this.updateUI(false);
+        this.setupFirebase().catch((error) => {
+            this.firebaseError = error;
+            console.warn("Firebase indisponível; PMOS em modo convidado.", error);
+        });
     }
 
     async signInWithEmail() {
+        if (!this.firebaseReady) { showNotification('Serviço de login indisponível.', 3000); return; }
         const email = document.getElementById('emailInput').value;
         const password = document.getElementById('passwordInput').value;
         const errorEl = document.getElementById('loginError');
@@ -154,6 +219,7 @@ class AuthManager {
     }
     
     async registerWithEmail() {
+        if (!this.firebaseReady) { showNotification('Serviço de login indisponível.', 3000); return; }
         const email = document.getElementById('emailInput').value;
         const password = document.getElementById('passwordInput').value;
         const errorEl = document.getElementById('loginError');
@@ -179,6 +245,7 @@ class AuthManager {
     }
 
     async sendPasswordReset() {
+        if (!this.firebaseReady) { showNotification('Serviço de login indisponível.', 3000); return; }
         const email = document.getElementById('emailInput').value;
         const errorEl = document.getElementById('loginError');
         errorEl.style.display = 'none';
@@ -200,6 +267,7 @@ class AuthManager {
     }
     
     async signInWithGoogle() {
+        if (!this.firebaseReady) { showNotification('Serviço de login indisponível.', 3000); return; }
         try {
             await signInWithPopup(this.auth, this.googleProvider);
         } catch (error) {
@@ -209,7 +277,11 @@ class AuthManager {
     }
 
     signOut() {
-        signOut(this.auth);
+        if (!this.firebaseReady || !this.auth) return Promise.resolve();
+        return signOut(this.auth).catch((error) => {
+            console.error("Erro ao sair:", error);
+            showNotification("Erro ao sair da conta.", 3000);
+        });
     }
     
     handleAuthState(user) {
@@ -226,6 +298,7 @@ class AuthManager {
             document.body.classList.remove('show-login');
             this.updateUI(false);
         }
+        document.dispatchEvent(new CustomEvent('pmos:authchange', { detail: { user: this.user } }));
     }
 updateUI(isLoggedIn) {
         const loginBtn = document.getElementById('loginOpenBtn');
@@ -238,7 +311,7 @@ updateUI(isLoggedIn) {
             if (logoutBtn) logoutBtn.style.display = 'inline-flex';
             document.body.classList.remove('show-login');
             this.toggleCloudButtons(true);
-            try { if (!window.webOSInitialized) initializeWebOS(); } catch(e) {}
+            try { if (!window.webOSInitialized) initializeWebOS(); } catch(e) { console.error(e); }
         } else {
             if (userNameEl) userNameEl.textContent = 'Convidado';
             if (loginBtn) loginBtn.style.display = 'inline-flex';
@@ -248,7 +321,17 @@ updateUI(isLoggedIn) {
 }
 }
 // --- Ponto de Entrada Global para a Lógica de Auth/API ---
-document.addEventListener('DOMContentLoaded', () => {
-    window.authManager = new AuthManager();
-    window.authManager.init();
-});
+function startAuth() {
+    if (window.authManager) return;
+    try {
+        window.authManager = new AuthManager();
+        window.authManager.init();
+    } catch (e) {
+        console.error("Falha ao iniciar autenticação; seguindo em modo convidado.", e);
+    }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startAuth);
+} else {
+    startAuth();
+}
