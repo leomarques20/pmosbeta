@@ -1,6 +1,10 @@
 import { generateId, showNotification } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 export function openSIPOCMatrix() {
     const uniqueSuffix = generateId('sipoc');
     const winId = window.windowManager.createWindow('Matriz SIPOC', '', { width: '1100px', height: '600px', appType: 'sipoc-matrix' });
@@ -22,13 +26,14 @@ export function openSIPOCMatrix() {
         loadData: function(dataString, fileMeta) { 
             try { 
                 const data = JSON.parse(dataString);
-                this.sipocData = data || { processName: "", suppliers: [], inputs: [], process: [], outputs: [], customers: [] }; 
+                const src = (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+                this.sipocData = { ...src, processName: typeof src.processName === 'string' ? src.processName : "" }; 
                 ['suppliers', 'inputs', 'process', 'outputs', 'customers'].forEach(key => { 
-                    this.sipocData[key] = (this.sipocData[key] || []).map(item => (typeof item === 'string') ? {id: generateId('sipocItem'), text: item} : {...item, id: item.id || generateId('sipocItem')}); 
+                    this.sipocData[key] = (Array.isArray(this.sipocData[key]) ? this.sipocData[key] : []).filter(item => item != null).map(item => (typeof item !== 'object') ? {id: generateId('sipocItem'), text: String(item)} : {...item, id: item.id || generateId('sipocItem'), text: item.text != null ? String(item.text) : ''}); 
                 }); 
-                this.fileId = fileMeta.id; 
+                this.fileId = fileMeta?.id ?? null; 
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                window.windowManager.updateWindowTitle(this.winId, fileMeta?.name || "Nova Matriz SIPOC"); 
                 this.renderSIPOC();
             } catch (e) { 
                 showNotification("Erro ao ler arquivo SIPOC.", 3000); 
@@ -42,7 +47,7 @@ export function openSIPOCMatrix() {
             this.renderSIPOC(); 
         },
         renderSIPOC: function() { this.mainContentEl.innerHTML = ''; this.processNameInput.value = this.sipocData.processName; const columns = [ { key: 'suppliers', title: 'Fornecedores (S)', icon: 'fa-truck' }, { key: 'inputs', title: 'Entradas (I)', icon: 'fa-sign-in-alt' }, { key: 'process', title: 'Processo (P)', icon: 'fa-cogs' }, { key: 'outputs', title: 'Saídas (O)', icon: 'fa-sign-out-alt' }, { key: 'customers', title: 'Clientes (C)', icon: 'fa-users' }]; columns.forEach(col => { const colEl = document.createElement('div'); colEl.className = 'sipoc-column'; colEl.dataset.columnKey = col.key; colEl.innerHTML = `<h3><i class="fas ${col.icon}"></i> ${col.title}</h3> <ul class="sipoc-items-list"></ul> <button class="app-button secondary small-add-item" data-action="add-item"><i class="fas fa-plus"></i> Item</button>`; const itemsListUl = colEl.querySelector('.sipoc-items-list'); (this.sipocData[col.key] || []).forEach(item => this.renderSipocItem(itemsListUl, item)); this.mainContentEl.appendChild(colEl); }); },
-        renderSipocItem: function(listUl, itemData) { const itemLi = document.createElement('li'); itemLi.className = 'sipoc-item'; itemLi.dataset.itemId = itemData.id; itemLi.innerHTML = `<input type="text" class="app-input" value="${itemData.text}" placeholder="..."><button class="app-button danger small-action" data-action="delete-item" title="Excluir"><i class="fas fa-times"></i></button>`; listUl.appendChild(itemLi); },
+        renderSipocItem: function(listUl, itemData) { const itemLi = document.createElement('li'); itemLi.className = 'sipoc-item'; itemLi.dataset.itemId = itemData.id; itemLi.innerHTML = `<input type="text" class="app-input" value="${escapeHtml(itemData.text)}" placeholder="..."><button class="app-button danger small-action" data-action="delete-item" title="Excluir"><i class="fas fa-times"></i></button>`; listUl.appendChild(itemLi); },
         addItemToColumn: function(columnKey) { if (!this.sipocData[columnKey]) this.sipocData[columnKey] = []; this.sipocData[columnKey].push({ id: generateId('sipocItem'), text: "" }); this.markDirty(); this.renderSIPOC(); },
         deleteSipocItem: function(columnKey, itemId) { if (this.sipocData[columnKey]) { this.sipocData[columnKey] = this.sipocData[columnKey].filter(item => item.id !== itemId); this.markDirty(); this.renderSIPOC(); } },
         updateSipocItemText: function(columnKey, itemId, newText) { if (this.sipocData[columnKey]) { const item = this.sipocData[columnKey].find(i => i.id === itemId); if (item) { item.text = newText; this.markDirty(); } } },

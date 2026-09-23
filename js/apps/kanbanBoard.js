@@ -1,6 +1,15 @@
 import { generateId, showNotification } from '../main.js';
 import { getStandardAppToolbarHTML, initializeFileState, setupAppToolbarActions } from './app.js';
 
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Aceita apenas formatos de cor simples (hex, nome, rgb/rgba) para uso seguro em atributos style
+function safeColor(color, fallback = '#cccccc') {
+    return (typeof color === 'string' && /^(#[0-9a-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\))$/i.test(color.trim())) ? color.trim() : fallback;
+}
+
 export function openKanbanBoard(options = {}) {
     const uniqueSuffix = generateId('kanban');
     const winId = window.windowManager.createWindow('Quadro Kanban', '', { width: '1200px', height: '750px', appType: 'kanban-board' });
@@ -162,7 +171,9 @@ export function openKanbanBoard(options = {}) {
         placeholderEl: null,
 
         getContrastColor: function (hexcolor) {
+            hexcolor = String(hexcolor || '');
             if (hexcolor.slice(0, 1) === '#') { hexcolor = hexcolor.slice(1); }
+            if (hexcolor.length === 3) { hexcolor = hexcolor.split('').map(ch => ch + ch).join(''); }
             const r = parseInt(hexcolor.substr(0, 2), 16);
             const g = parseInt(hexcolor.substr(2, 2), 16);
             const b = parseInt(hexcolor.substr(4, 2), 16);
@@ -179,19 +190,27 @@ export function openKanbanBoard(options = {}) {
             try {
                 data = JSON.parse(dataString);
             } catch (e) {
+                // Mantém o quadro atual intacto em caso de arquivo inválido
                 showNotification("Erro ao ler arquivo Kanban.", 3000);
-                this.loadDefaultBoard();
-                this.renderBoard();
                 return;
             }
+            if (!data || typeof data !== 'object' || Array.isArray(data)) data = {};
+            if (!Array.isArray(data.columns)) data.columns = [];
+            data.columns = data.columns.filter(col => col && typeof col === 'object');
+            data.columns.forEach(col => {
+                col.cards = (Array.isArray(col.cards) ? col.cards : []).filter(card => card && typeof card === 'object');
+            });
 
-            if (data && !data.tags) {
+            if (!Array.isArray(data.tags)) {
                 const globalTags = new Map();
                 let nextTagId = 1;
                 (data.columns || []).forEach(col => {
                     (col.cards || []).forEach(card => {
                         const newTagIds = [];
-                        (card.tags || []).forEach(oldTag => {
+                        (Array.isArray(card.tags) ? card.tags : []).forEach(oldTag => {
+                            if (typeof oldTag === 'string') oldTag = { text: oldTag, color: '#cccccc' };
+                            if (!oldTag || oldTag.text == null) return;
+                            oldTag = { ...oldTag, text: String(oldTag.text) };
                             const tagKey = `${oldTag.text.toLowerCase()}|${oldTag.color}`;
                             if (!globalTags.has(tagKey)) {
                                 globalTags.set(tagKey, {
@@ -208,14 +227,22 @@ export function openKanbanBoard(options = {}) {
                 data.tags = Array.from(globalTags.values());
             }
 
-            this.boardData = (data && Array.isArray(data.columns)) ? data : { columns: [], tags: [] };
-            (this.boardData.columns || []).forEach(col => {
+            data.tags = data.tags.filter(tag => tag && typeof tag === 'object');
+            this.boardData = data;
+            this.boardData.columns.forEach(col => {
                 col.id = col.id || generateId('col');
-                (col.cards || []).forEach(card => { card.id = card.id || generateId('card'); });
+                col.cards.forEach(card => {
+                    card.id = card.id || generateId('card');
+                    if (!Array.isArray(card.tags)) card.tags = [];
+                });
             });
-            this.fileId = fileMeta.id;
+            this.editingCardId = null;
+            this.editingColumnId = null;
+            this.closeCardModal();
+            this.closeTagManager();
+            this.fileId = fileMeta?.id ?? null;
             this.markClean();
-            window.windowManager.updateWindowTitle(this.winId, fileMeta.name);
+            window.windowManager.updateWindowTitle(this.winId, fileMeta?.name || "Novo Kanban Board");
             this.renderBoard();
         },
 
@@ -302,12 +329,12 @@ export function openKanbanBoard(options = {}) {
                 columnEl.className = 'kanban-column';
                 columnEl.dataset.columnId = column.id;
 
-                const cardsHTML = column.cards.map(card => this.renderCard(card)).join('');
+                const cardsHTML = (column.cards || []).map(card => this.renderCard(card)).join('');
 
                 columnEl.innerHTML = `
                     <div class="column-header">
                         <i class="fas fa-grip-vertical column-drag-handle" draggable="true" title="Arrastar para reordenar"></i>
-                        <span class="column-title">${column.title}</span>
+                        <span class="column-title">${escapeHtml(column.title)}</span>
                         <div class="column-actions">
                             <button class="action-btn" data-action="delete-column" title="Excluir Coluna"><i class="fas fa-trash"></i></button>
                         </div>
@@ -326,17 +353,18 @@ export function openKanbanBoard(options = {}) {
             const tagsHTML = (card.tags || []).map(tagId => {
                 const tag = this.boardData.tags.find(t => t.id === tagId);
                 if (!tag) return '';
-                const textColor = this.getContrastColor(tag.color);
-                return `<span class="card-tag" style="background-color: ${tag.color}; color: ${textColor};">${tag.text}</span>`;
+                const tagColor = safeColor(tag.color);
+                const textColor = this.getContrastColor(tagColor);
+                return `<span class="card-tag" style="background-color: ${tagColor}; color: ${textColor};">${escapeHtml(tag.text)}</span>`;
             }).join('');
 
             return `
-                <div class="kanban-card ${priorityInfo}" data-card-id="${card.id}" draggable="false">
-                    <div class="card-header"><span class="card-title">${card.title}</span></div>
-                    ${card.description ? `<p class="card-description">${card.description}</p>` : ''}
+                <div class="kanban-card ${priorityInfo}" data-card-id="${escapeHtml(card.id)}" draggable="false">
+                    <div class="card-header"><span class="card-title">${escapeHtml(card.title)}</span></div>
+                    ${card.description ? `<p class="card-description">${escapeHtml(card.description)}</p>` : ''}
                     <div class="card-meta">
                         <div class="card-due-date"><i class="far fa-calendar-alt"></i> ${formatDate(card.dueDate)}</div>
-                        ${card.assignee ? `<div class="card-assignee"><i class="fas fa-user-circle"></i> ${card.assignee}</div>` : ''}
+                        ${card.assignee ? `<div class="card-assignee"><i class="fas fa-user-circle"></i> ${escapeHtml(card.assignee)}</div>` : ''}
                     </div>
                     ${tagsHTML ? `<div class="card-tags">${tagsHTML}</div>` : ''}
                 </div>`;
@@ -358,7 +386,11 @@ export function openKanbanBoard(options = {}) {
             inputEl.focus();
             inputEl.select();
 
+            let finished = false;
             const saveOrCancel = (save) => {
+                // Evita reprocessar: o blur disparado pelo renderBoard salvaria mesmo após Escape
+                if (finished) return;
+                finished = true;
                 if (save) {
                     const newTitle = inputEl.value.trim();
                     const column = this.boardData.columns.find(c => c.id === columnId);
@@ -394,11 +426,11 @@ export function openKanbanBoard(options = {}) {
             }
 
             this.cardModal.overlay.style.display = 'flex';
-            this.cardModal.title.value = card ? card.title : '';
-            this.cardModal.priority.value = card ? card.priority : 'medium';
-            this.cardModal.dueDate.value = card ? card.dueDate : '';
-            this.cardModal.assignee.value = card ? card.assignee : '';
-            this.cardModal.description.value = card ? card.description : '';
+            this.cardModal.title.value = card ? (card.title || '') : '';
+            this.cardModal.priority.value = card && ['low', 'medium', 'high'].includes(card.priority) ? card.priority : 'medium';
+            this.cardModal.dueDate.value = card ? (card.dueDate || '') : '';
+            this.cardModal.assignee.value = card ? (card.assignee || '') : '';
+            this.cardModal.description.value = card ? (card.description || '') : '';
 
             const cardTagIds = card ? card.tags || [] : [];
             this.renderAppliedCardTags(cardTagIds);
@@ -419,8 +451,8 @@ export function openKanbanBoard(options = {}) {
                 tagEl.className = 'card-tag modal-tag';
                 tagEl.dataset.tagId = tagData.id;
                 tagEl.textContent = tagData.text;
-                const textColor = this.getContrastColor(tagData.color);
-                tagEl.style.backgroundColor = tagData.color;
+                const textColor = this.getContrastColor(safeColor(tagData.color));
+                tagEl.style.backgroundColor = safeColor(tagData.color);
                 tagEl.style.color = textColor;
                 tagEl.innerHTML += ' <span class="remove-tag" title="Remover tag">×</span>';
                 this.cardModal.tagsContainer.appendChild(tagEl);
@@ -485,7 +517,7 @@ export function openKanbanBoard(options = {}) {
             };
             if (this.editingCardId) {
                 const column = this.boardData.columns.find(col => col.id === this.editingColumnId);
-                const cardIndex = column.cards.findIndex(c => c.id === this.editingCardId);
+                const cardIndex = column ? column.cards.findIndex(c => c.id === this.editingCardId) : -1;
                 if (cardIndex > -1) { column.cards[cardIndex] = { ...column.cards[cardIndex], ...cardData }; }
             } else {
                 const column = this.boardData.columns.find(col => col.id === this.editingColumnId);
@@ -511,10 +543,11 @@ export function openKanbanBoard(options = {}) {
             this.boardData.tags.forEach(tag => {
                 const li = document.createElement('li');
                 li.dataset.tagId = tag.id;
-                const textColor = this.getContrastColor(tag.color);
+                const tagColor = safeColor(tag.color);
+                const textColor = this.getContrastColor(tagColor);
                 li.innerHTML = `
-                    <span class="card-tag" style="background-color: ${tag.color}; color: ${textColor};">${tag.text}</span>
-                    <span class="tag-text-display" style="flex-grow: 1;">${tag.text}</span>
+                    <span class="card-tag" style="background-color: ${tagColor}; color: ${textColor};">${escapeHtml(tag.text)}</span>
+                    <span class="tag-text-display" style="flex-grow: 1;">${escapeHtml(tag.text)}</span>
                     <div class="tag-manager-actions">
                         <button class="app-button-icon" data-action="edit-tag" title="Editar Tag"><i class="fas fa-pencil-alt"></i></button>
                         <button class="app-button-icon danger" data-action="delete-tag" title="Excluir Tag"><i class="fas fa-trash"></i></button>
@@ -531,6 +564,7 @@ export function openKanbanBoard(options = {}) {
             const li = actionBtn.closest('li');
             const tagId = li.dataset.tagId;
             const tag = this.boardData.tags.find(t => t.id === tagId);
+            if (!tag) return;
 
             if (action === 'delete-tag') {
                 if (confirm(`Tem certeza que deseja excluir a tag "${tag.text}"? Ela será removida de todos os cards.`)) {
@@ -546,8 +580,8 @@ export function openKanbanBoard(options = {}) {
                 }
             } else if (action === 'edit-tag') {
                 li.innerHTML = `
-                    <input type="color" value="${tag.color}" class="color-picker-input">
-                    <input type="text" value="${tag.text}" class="app-input" style="flex-grow: 1; margin:0;">
+                    <input type="color" value="${safeColor(tag.color)}" class="color-picker-input">
+                    <input type="text" value="${escapeHtml(tag.text)}" class="app-input" style="flex-grow: 1; margin:0;">
                     <div class="tag-manager-actions">
                         <button class="app-button-icon" data-action="save-edit-tag" title="Salvar"><i class="fas fa-check"></i></button>
                         <button class="app-button-icon" data-action="cancel-edit-tag" title="Cancelar"><i class="fas fa-times"></i></button>
@@ -737,6 +771,8 @@ export function openKanbanBoard(options = {}) {
             }, 200);
         },
         handleTouchMove: function (e) {
+            // Movimento antes do long-press = rolagem; cancela o início do arraste
+            if (!this.isTouchDragging) clearTimeout(this.longPressTimer);
             if (!this.isTouchDragging || !this.touchGhostEl) return;
             e.preventDefault();
             const touch = e.touches[0];
@@ -802,6 +838,7 @@ export function openKanbanBoard(options = {}) {
             this.touchGhostEl.style.top = `${y - this.touchGhostEl.offsetHeight / 2}px`;
         },
         cleanup: function () {
+            clearTimeout(this.longPressTimer);
             if (this.touchGhostEl && this.touchGhostEl.parentElement) {
                 this.touchGhostEl.parentElement.removeChild(this.touchGhostEl);
             }

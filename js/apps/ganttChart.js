@@ -42,10 +42,15 @@ export function openGanttChart() {
         loadData: function(dataString, fileMeta) { 
             try { 
                 const data = JSON.parse(dataString);
-                this.tasks = Array.isArray(data) ? data : []; 
-                this.fileId = fileMeta.id; 
+                this.tasks = (Array.isArray(data) ? data : []).filter(t => t && typeof t === 'object').map(t => ({
+                    ...t,
+                    id: t.id ? String(t.id) : generateId('gtsk'),
+                    name: t.name != null ? String(t.name) : '',
+                    dependencies: Array.isArray(t.dependencies) ? t.dependencies.join(',') : (t.dependencies != null ? String(t.dependencies) : '')
+                })); 
+                this.fileId = fileMeta?.id ?? null; 
                 this.markClean(); 
-                window.windowManager.updateWindowTitle(this.winId, fileMeta.name); 
+                window.windowManager.updateWindowTitle(this.winId, fileMeta?.name || "Novo Cronograma"); 
                 this.renderAll(); 
             } catch (e) { 
                 showNotification("Erro ao ler arquivo Gantt.", 3000); 
@@ -106,7 +111,7 @@ export function openGanttChart() {
                 row.dataset.taskId = task.id;
                 // ID
                 const idSpan = document.createElement('span');
-                idSpan.textContent = task.id.slice(-4);
+                idSpan.textContent = String(task.id).slice(-4);
                 row.appendChild(idSpan);
                 // Nome
                 const nameInput = document.createElement('input');
@@ -172,10 +177,10 @@ export function openGanttChart() {
                     const opt = document.createElement('option');
                     opt.value = otherTask.id;
                     // Rótulo mostra nome e 4 últimos dígitos para identificação
-                    opt.textContent = `${otherTask.name} (${otherTask.id.slice(-4)})`;
+                    opt.textContent = `${otherTask.name} (${String(otherTask.id).slice(-4)})`;
                     // Se as dependências atuais do task incluem este id, seleciona
                     if (task.dependencies) {
-                        const deps = task.dependencies.split(/[,;\s]+/).filter(Boolean);
+                        const deps = String(task.dependencies).split(/[,;\s]+/).filter(Boolean);
                         if (deps.includes(otherTask.id)) opt.selected = true;
                     }
                     depSelect.appendChild(opt);
@@ -216,11 +221,11 @@ export function openGanttChart() {
             this.tasks.forEach(task => {
                 if (task.start) {
                     const startDate = new Date(task.start + "T00:00:00Z");
-                    if (!minDateOverall || startDate < minDateOverall) minDateOverall = startDate;
+                    if (!isNaN(startDate) && (!minDateOverall || startDate < minDateOverall)) minDateOverall = startDate;
                 }
                 if (task.end) {
                     const endDate = new Date(task.end + "T00:00:00Z");
-                    if (!maxDateOverall || endDate > maxDateOverall) maxDateOverall = endDate;
+                    if (!isNaN(endDate) && (!maxDateOverall || endDate > maxDateOverall)) maxDateOverall = endDate;
                 }
             });
             if (!minDateOverall || !maxDateOverall || minDateOverall > maxDateOverall) {
@@ -293,14 +298,14 @@ export function openGanttChart() {
                 while (currentTimelineDate <= paddedMaxDate) {
                     const weekEnd = new Date(currentTimelineDate);
                     weekEnd.setUTCDate(currentTimelineDate.getUTCDate() + 6);
-                    timelineHTML += `<span style="display:inline-block; width:${unitVisualWidth}px; text-align:center; border-right:1px solid var(--separator-color); font-size:0.8em;" title="Semana de ${currentTimelineDate.toLocaleDateString()} a ${weekEnd.toLocaleDateString()}">S${currentTimelineDate.getUTCDate()}/${currentTimelineDate.getUTCMonth()+1}</span>`;
+                    timelineHTML += `<span style="display:inline-block; width:${unitVisualWidth}px; text-align:center; border-right:1px solid var(--separator-color); font-size:0.8em;" title="Semana de ${currentTimelineDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })} a ${weekEnd.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}">S${currentTimelineDate.getUTCDate()}/${currentTimelineDate.getUTCMonth()+1}</span>`;
                     currentTimelineDate.setUTCDate(currentTimelineDate.getUTCDate() + 7);
                 }
             } else {
                 currentTimelineDate = new Date(paddedMinDate);
                 currentTimelineDate.setUTCDate(1);
                 while (currentTimelineDate <= paddedMaxDate) {
-                    const monthName = currentTimelineDate.toLocaleString('pt-BR', { month: 'short', year: '2-digit' });
+                    const monthName = currentTimelineDate.toLocaleString('pt-BR', { month: 'short', year: '2-digit', timeZone: 'UTC' });
                     timelineHTML += `<span style="display:inline-block; width:${unitVisualWidth}px; text-align:center; border-right:1px solid var(--separator-color); font-size:0.8em;">${monthName}</span>`;
                     currentTimelineDate.setUTCMonth(currentTimelineDate.getUTCMonth() + 1);
                 }
@@ -310,12 +315,18 @@ export function openGanttChart() {
             // Cria barras e mapeia informações para as dependências
             const barInfoById = {};
             this.tasks.forEach((task) => {
-                const tableRowEl = this.tableBody.querySelector(`.gantt-task-table-row[data-task-id="${task.id}"]`);
+                const tableRowEl = this.tableBody.querySelector(`.gantt-task-table-row[data-task-id="${CSS.escape(String(task.id))}"]`);
                 const rowHeight = tableRowEl ? tableRowEl.offsetHeight : 30;
-                if (!task.start || !task.end) return;
-                const startDate = new Date(task.start + 'T00:00:00Z');
-                const endDate = new Date(task.end + 'T00:00:00Z');
-                if (startDate > endDate) return;
+                const startDate = task.start ? new Date(task.start + 'T00:00:00Z') : null;
+                const endDate = task.end ? new Date(task.end + 'T00:00:00Z') : null;
+                if (!startDate || !endDate || isNaN(startDate) || isNaN(endDate) || startDate > endDate) {
+                    // Mantém uma linha vazia para que as barras continuem alinhadas às linhas da tabela
+                    const emptyRow = document.createElement('div');
+                    emptyRow.className = 'gantt-bar-row';
+                    emptyRow.style.height = `${rowHeight}px`;
+                    this.chartBarsContainer.appendChild(emptyRow);
+                    return;
+                }
                 let barOffsetUnits;
                 let barDurationUnits;
                 const effectivePaddedMinDate = new Date(paddedMinDate);
@@ -347,7 +358,7 @@ export function openGanttChart() {
                 bar.style.left = `${barOffsetUnits * unitVisualWidth}px`;
                 bar.style.width = `${barDurationUnits * unitVisualWidth - 2}px`;
                 bar.style.top = `calc((${rowHeight}px - 20px) / 2)`;
-                bar.title = `${task.name} (${progress}%) - ${new Date(task.start + 'T00:00:00Z').toLocaleDateString()} a ${new Date(task.end + 'T00:00:00Z').toLocaleDateString()}`;
+                bar.title = `${task.name} (${progress}%) - ${startDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })} a ${endDate.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}`;
                 bar.textContent = `${task.name} (${progress}%)`;
                 const progressBarEl = document.createElement('div');
                 progressBarEl.className = 'progress';
@@ -370,7 +381,7 @@ export function openGanttChart() {
                 svg.style.pointerEvents = 'none';
                 const defs = document.createElementNS(svgNS, 'defs');
                 const marker = document.createElementNS(svgNS, 'marker');
-                marker.setAttribute('id', 'ganttArrow');
+                marker.setAttribute('id', `ganttArrow_${uniqueSuffix}`);
                 marker.setAttribute('viewBox', '0 0 10 10');
                 marker.setAttribute('refX', '10');
                 marker.setAttribute('refY', '5');
@@ -384,7 +395,10 @@ export function openGanttChart() {
                 defs.appendChild(marker);
                 svg.appendChild(defs);
                 this.dependenciesSvg = svg;
-                this.chartBarsContainer.appendChild(svg);
+            }
+            // O innerHTML = '' acima remove o SVG do DOM; reanexa a cada renderização
+            if (this.dependenciesSvg.parentNode !== this.chartBarsContainer) {
+                this.chartBarsContainer.appendChild(this.dependenciesSvg);
             }
             // Ajusta largura/altura do svg conforme o contêiner de barras
             this.dependenciesSvg.setAttribute('width', this.chartBarsContainer.scrollWidth);
@@ -394,7 +408,7 @@ export function openGanttChart() {
             // Desenha linhas para cada dependência
             this.tasks.forEach(task => {
                 if (!task.dependencies) return;
-                const deps = task.dependencies.split(/[,;\s]+/).filter(Boolean);
+                const deps = String(task.dependencies).split(/[,;\s]+/).filter(Boolean);
                 deps.forEach(depId => {
                     const parentInfo = barInfoById[depId.trim()];
                     const childInfo = barInfoById[task.id];
@@ -413,7 +427,7 @@ export function openGanttChart() {
                     path.setAttribute('fill', 'none');
                     path.setAttribute('stroke', 'var(--accent-color)');
                     path.setAttribute('stroke-width', '2');
-                    path.setAttribute('marker-end', 'url(#ganttArrow)');
+                    path.setAttribute('marker-end', `url(#ganttArrow_${uniqueSuffix})`);
                     path.setAttribute('class', 'dependency-line');
                     this.dependenciesSvg.appendChild(path);
                 });
