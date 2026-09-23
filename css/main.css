@@ -118,8 +118,8 @@ body.logged-in #loginContainer {
 .login-form .app-button { width: 100%; }
 .login-form-toggle { color: var(--accent-color); cursor: pointer; font-size: 0.9em; text-decoration: underline; }
 
-#userProfile { display: none; align-items: center; gap: 10px; }
-body.logged-in #userProfile { display: flex; }
+/* Visível também no modo convidado (mostra "Convidado" e o botão Entrar) */
+#userProfile { display: flex; align-items: center; gap: 10px; }
 #userProfile img { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--separator-color); }
 #userProfile span { font-weight: 500; font-size: 0.9em; color: var(--text-color); }
 #logoutBtn { font-size: 0.85em !important; padding: 6px 12px !important; }
@@ -1040,6 +1040,7 @@ Sonoma Design System – v1.0
     /* Esta é a correção mais importante. */
     /* Ela sobrescreve a regra que o esconde no desktop. */
     .dock.hidden {
+        bottom: var(--dock-total-bottom-offset); /* Neutraliza o 'bottom' negativo que o esconde no desktop. */
         transform: translateX(-50%) translateY(0); /* Neutraliza o translateY que o esconde. */
         opacity: 1;
         pointer-events: auto;

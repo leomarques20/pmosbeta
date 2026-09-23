@@ -15,6 +15,24 @@ export function generateId(prefix = 'id') {
     return prefix + '_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
 }
 
+export function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// Localiza o ícone do Dock correspondente a um appType de janela (ex.: 'mindmap', 'quality-tool checklist').
+const APP_TYPE_DOCK_ALIASES = { 'filesystem': 'file-system', 'mindmap': 'mind-map', 'checklist': 'checklist-tool', 'ncr': 'ncr-tool', 'pdca': 'pdca-tool', '5w2h': '5w2h-tool' };
+function findDockItemForAppType(appType) {
+    if (!appType) return null;
+    const parts = appType.replace(/([A-Z])/g, '-$1').toLowerCase().split(' ').filter(Boolean);
+    const candidates = [parts[parts.length - 1], parts[0]];
+    for (const c of candidates) {
+        const key = APP_TYPE_DOCK_ALIASES[c] || c;
+        const el = document.querySelector(`.dock-item[data-action="open-${key}"]`);
+        if (el) return el;
+    }
+    return null;
+}
+
 export function showNotification(message, duration = 3000) {
     const notificationElement = document.getElementById('notification');
     if (!notificationElement) {
@@ -98,7 +116,7 @@ class WindowManager {
         ['close', 'minimize', 'maximize'].forEach(type => {
             const btn = document.createElement('button');
             btn.className = `window-control ${type}`;
-            btn.title = type.charAt(0).toUpperCase() + type.slice(1);
+            btn.title = { close: 'Fechar', minimize: 'Minimizar', maximize: 'Maximizar' }[type];
             btn.onclick = (e) => {
                 e.stopPropagation();
                 if (type === 'close') this.closeWindow(winId);
@@ -135,9 +153,10 @@ class WindowManager {
         win.addEventListener('keydown', async (e) => {
             if (e.ctrlKey && e.key.toLowerCase() === 's') {
                 e.preventDefault();
-                const activeWinData = this.windows.get(this.activeWindowId);
-                if (activeWinData && activeWinData.currentAppInstance) {
-                    await appUtils.handleSaveAction(activeWinData.currentAppInstance);
+                const thisWinData = this.windows.get(winId);
+                const instance = thisWinData && thisWinData.currentAppInstance;
+                if (instance && typeof instance.getData === 'function') {
+                    await appUtils.handleSaveAction(instance);
                 }
             }
         });
@@ -161,9 +180,11 @@ class WindowManager {
             currentAppInstance: null,
             jmInstance: null,
             getScreenshot: async () => {
+                const controlsEl = win.querySelector('.window-controls');
+                const resizeHandleEl = win.querySelector('.resize-handle');
                 try {
-                    const controlsEl = win.querySelector('.window-controls');
-                    const resizeHandleEl = win.querySelector('.resize-handle');
+                    if (typeof html2canvas !== 'function') throw new Error('html2canvas indisponível');
+                    if (!win.offsetWidth || !win.offsetHeight) throw new Error('janela oculta');
                     if (controlsEl) controlsEl.style.visibility = 'hidden';
                     if (resizeHandleEl) resizeHandleEl.style.visibility = 'hidden';
 
@@ -179,12 +200,14 @@ class WindowManager {
                     return canvas.toDataURL('image/png');
                 } catch (err) {
                     console.warn("Erro ao gerar screenshot da janela:", err, winData.title);
-                    const appIconActionKey = `open-${winData.appType.replace(/([A-Z])/g, '-$1').toLowerCase().split(' ')[0]}`;
-                    const appIconEl = document.querySelector(`.dock-item[data-action="${appIconActionKey}"]`);
-                    const appIconText = appIconEl ? appIconEl.textContent : '⚙️';
-                    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--button-bg').trim();
-                    const fgColor = getComputedStyle(document.documentElement).getPropertyValue('--text-color').trim();
-                    return `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="75" viewBox="0 0 100 75"><rect width="100" height="75" fill="${bgColor}"/><text x="50" y="45" font-size="30" text-anchor="middle" dominant-baseline="middle" fill="${fgColor}">${appIconText || '🖼️'}</text><text x="50" y="65" font-size="10" text-anchor="middle" dominant-baseline="middle" fill="${fgColor}">${winData.title.substring(0, 12)}</text></svg>`;
+                    if (controlsEl) controlsEl.style.visibility = 'visible';
+                    if (resizeHandleEl) resizeHandleEl.style.visibility = 'visible';
+                    const appIconEl = findDockItemForAppType(winData.appType);
+                    const appIconText = (appIconEl && appIconEl.textContent.trim().substring(0, 3)) || '🖼️';
+                    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--button-bg').trim() || '#ddd';
+                    const fgColor = getComputedStyle(document.documentElement).getPropertyValue('--text-color').trim() || '#000';
+                    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="75" viewBox="0 0 100 75"><rect width="100" height="75" fill="${escapeHtml(bgColor)}"/><text x="50" y="40" font-size="14" text-anchor="middle" dominant-baseline="middle" fill="${escapeHtml(fgColor)}">${escapeHtml(appIconText)}</text><text x="50" y="62" font-size="10" text-anchor="middle" dominant-baseline="middle" fill="${escapeHtml(fgColor)}">${escapeHtml(winData.title.substring(0, 12))}</text></svg>`;
+                    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
                 }
             }
         };
@@ -232,6 +255,8 @@ class WindowManager {
             }
             winData.element.remove();
             this.windows.delete(winId);
+            this.stageManager.originalWindowStates.delete(winId);
+            if (this.stageManager.focusedAppId === winId) this.stageManager.focusedAppId = null;
             this._removeTaskbarItem(winId);
             if (this.activeWindowId === winId) this.activeWindowId = null;
             if (this.stageManager.isActive) this.stageManager.updateStageThumbnails();
@@ -243,10 +268,12 @@ class WindowManager {
         if (this.windows.has(winId)) {
             const winData = this.windows.get(winId);
             const dock = document.getElementById('appDock');
-            const dockRect = dock.getBoundingClientRect();
-            const targetX = dockRect.left + (dockRect.width / 2);
-            const targetY = dockRect.top + (dockRect.height / 2);
-            winData.element.style.transformOrigin = `${targetX - winData.element.offsetLeft}px ${targetY - winData.element.offsetTop}px`;
+            if (dock) {
+                const dockRect = dock.getBoundingClientRect();
+                const targetX = dockRect.left + (dockRect.width / 2);
+                const targetY = dockRect.top + (dockRect.height / 2);
+                winData.element.style.transformOrigin = `${targetX - winData.element.offsetLeft}px ${targetY - winData.element.offsetTop}px`;
+            }
             winData.element.classList.add('minimized');
             winData.minimized = true;
             this._updateTaskbarItemVisual(winId, true);
@@ -309,6 +336,7 @@ class WindowManager {
         titleBar.onmousedown = (e) => {
             if (e.target.classList.contains('window-control') || e.target.closest('.window-control')) return;
             const winData = this.windows.get(winId);
+            if (!winData) return;
             if (winData.maximized || (this.stageManager.isActive && this.stageManager.focusedAppId === winId)) return;
             this.makeActive(winId);
             offsetX = e.clientX - win.offsetLeft;
@@ -329,6 +357,7 @@ class WindowManager {
         resizeHandle.onmousedown = (e) => {
             e.preventDefault();
             const winData = this.windows.get(winId);
+            if (!winData) return;
             if (winData.maximized || (this.stageManager.isActive && this.stageManager.focusedAppId === winId)) return;
             this.makeActive(winId);
             const initialWidth = win.offsetWidth;
@@ -357,25 +386,31 @@ class WindowManager {
         const item = document.createElement('div');
         item.className = 'taskbar-item';
         item.id = `taskbar-item-${winId}`;
-        let actionKeyBase = appType ? appType.replace(/([A-Z])/g, '-$1').toLowerCase().split(' ')[0] : 'generic';
-        let actionKey = `open-${actionKeyBase}`;
-        if (!this.appLaunchActions[actionKey] && this.appLaunchActions[`new-${actionKeyBase}`]) {
-            actionKey = `new-${actionKeyBase}`;
-        } else if (!this.appLaunchActions[actionKey]) {
-            const allActionKeys = Object.keys(this.appLaunchActions);
-            const matchingActionKey = allActionKeys.find(k => k.endsWith(actionKeyBase));
-            if (matchingActionKey) actionKey = matchingActionKey;
-            else actionKey = null;
+        const appIconEl = findDockItemForAppType(appType);
+        const appIconImg = appIconEl ? appIconEl.querySelector('img.dock-icon') : null;
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'taskbar-item-icon';
+        iconSpan.style.cssText = 'font-size: 1.2em; margin-right: 5px; display: inline-flex; align-items: center;';
+        if (appIconImg && appIconImg.getAttribute('src')) {
+            const img = document.createElement('img');
+            img.src = appIconImg.getAttribute('src');
+            img.alt = '';
+            img.style.cssText = 'width: 18px; height: 18px; object-fit: contain;';
+            iconSpan.appendChild(img);
+        } else {
+            iconSpan.textContent = '⚙️';
         }
-        const appIconEl = actionKey ? document.querySelector(`.dock-item[data-action="${actionKey}"]`) : null;
-        const appIconText = appIconEl ? appIconEl.textContent : '⚙️';
-
-
-        item.innerHTML = `<span class="taskbar-item-icon" style="font-size: 1.2em; margin-right: 5px;">${appIconText}</span> <span class="taskbar-item-title">${title}</span>`;
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'taskbar-item-title';
+        titleSpan.textContent = title;
+        item.appendChild(iconSpan);
+        item.appendChild(titleSpan);
         item.title = title;
 
         item.onclick = () => {
             const winData = this.windows.get(winId);
+            if (!winData) return;
             if (this.stageManager.isActive) {
                 this.stageManager.focusApp(winId);
                 if (winData.minimized) this.restoreWindow(winId);
@@ -386,7 +421,7 @@ class WindowManager {
             }
         };
         item.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); this._showTaskbarItemContextMenu(e, winId, item); };
-        this.taskbarItemsContainer.appendChild(item);
+        if (this.taskbarItemsContainer) this.taskbarItemsContainer.appendChild(item);
         this._updateTaskbarActiveState(winId);
     }
 
@@ -428,7 +463,7 @@ class WindowManager {
 
     _removeTaskbarItem(winId) { const item = document.getElementById(`taskbar-item-${winId}`); if (item) item.remove(); }
     _updateTaskbarItemTitle(winId, newTitle) { const item = document.getElementById(`taskbar-item-${winId}`); if (item) { const titleEl = item.querySelector('.taskbar-item-title'); if (titleEl) titleEl.textContent = newTitle; item.title = newTitle; } }
-    _updateTaskbarActiveState(winIdToActivate) { this.taskbarItemsContainer.querySelectorAll('.taskbar-item').forEach(item => item.classList.remove('active')); const activeItem = document.getElementById(`taskbar-item-${winIdToActivate}`); if (activeItem) activeItem.classList.add('active'); }
+    _updateTaskbarActiveState(winIdToActivate) { if (!this.taskbarItemsContainer) return; this.taskbarItemsContainer.querySelectorAll('.taskbar-item').forEach(item => item.classList.remove('active')); const activeItem = document.getElementById(`taskbar-item-${winIdToActivate}`); if (activeItem) activeItem.classList.add('active'); }
     _updateTaskbarItemVisual(winId, isMinimized) { const item = document.getElementById(`taskbar-item-${winId}`); if (item) { item.style.opacity = isMinimized ? '0.7' : '1'; } }
 }
 
@@ -495,7 +530,7 @@ class ThemeManager {
         const themePrefix = this.isDark ? 'dark' : 'light';
         const propsToUpdate = ['background', 'text-color', 'secondary-text-color', 'window-bg', 'toolbar-bg', 'button-bg', 'button-text-color', 'input-bg', 'input-border-color', 'separator-color', 'hover-highlight-color', 'current-window-bg-rgb', 'current-background-rgb-for-stage'];
         propsToUpdate.forEach(prop => {
-            let varName = prop.replace('-color', '').replace('-rgb', '').replace('-for-stage', '');
+            let varName = prop.replace('current-', '').replace('-color', '').replace('-rgb', '').replace('-for-stage', '');
             let cssVarName = `--${varName}-${themePrefix}`;
             if (prop.includes('-rgb')) cssVarName += '-rgb';
             root.style.setProperty(`--${prop}`, `var(${cssVarName})`);
@@ -548,9 +583,9 @@ class ThemeManager {
 class StageManager {
     constructor(windowMgr) { this.windowManager = windowMgr; this.isActive = false; this.overlay = document.getElementById('stageManagerOverlay'); this.sidebar = document.getElementById('stageManagerSidebar'); this.mainArea = document.getElementById('stageManagerMainArea'); this.toggleButton = document.getElementById('stageManagerToggle'); this.focusedAppId = null; this.originalWindowStates = new Map(); if (this.toggleButton) this.toggleButton.onclick = () => this.toggle(); }
     toggle() { this.isActive = !this.isActive; this.overlay.classList.toggle('active', this.isActive); if (this.toggleButton) this.toggleButton.classList.toggle('active', this.isActive); if (this.isActive) { this.windowManager.windows.forEach((winData, winId) => { if (!winData.minimized && winData.element.style.display !== 'none') { this.originalWindowStates.set(winId, { left: winData.element.style.left, top: winData.element.style.top, width: winData.element.style.width, height: winData.element.style.height, zIndex: winData.element.style.zIndex, transform: winData.element.style.transform || '' }); } }); const activeOrFirstVisible = this.windowManager.activeWindowId || Array.from(this.windowManager.windows.keys()).find(id => !this.windowManager.windows.get(id).minimized && this.windowManager.windows.get(id).element.style.display !== 'none'); if (activeOrFirstVisible) { this.focusApp(activeOrFirstVisible); } else { this.updateStageThumbnails(); } } else { this.restoreWindows(); this.originalWindowStates.clear(); } }
-    async updateStageThumbnails() { if (!this.sidebar) return; this.sidebar.innerHTML = ''; const openWindows = []; this.windowManager.windows.forEach(winData => { if (!winData.minimized && winData.element.style.display !== 'none') { openWindows.push(winData); } }); for (const winData of openWindows) { if (winData.element.id === this.focusedAppId && this.isActive) continue; const thumb = document.createElement('div'); thumb.className = 'stage-app-thumbnail'; thumb.dataset.winId = winData.element.id; const titleSpan = document.createElement('span'); titleSpan.className = 'thumbnail-title'; titleSpan.textContent = winData.title.substring(0, 15) + (winData.title.length > 15 ? '...' : ''); try { const screenshotSrc = await winData.getScreenshot(); if (screenshotSrc.startsWith('data:image/svg+xml')) { const tempDiv = document.createElement('div'); tempDiv.innerHTML = screenshotSrc; const svgEl = tempDiv.firstChild; if (svgEl.querySelector('text:last-child')) svgEl.querySelector('text:last-child').textContent = titleSpan.textContent; thumb.appendChild(svgEl); } else { const img = document.createElement('img'); img.src = screenshotSrc; img.alt = winData.title; thumb.appendChild(img); thumb.appendChild(titleSpan); } } catch (e) { const appIconActionKey = `open-${winData.appType.replace(/([A-Z])/g, '-$1').toLowerCase().split(' ')[0]}`; const appIconEl = document.querySelector(`.dock-item[data-action="${appIconActionKey}"]`); const appIconText = appIconEl ? appIconEl.textContent : '⚙️'; thumb.innerHTML = `<div class="placeholder-icon">${appIconText}</div>`; thumb.appendChild(titleSpan); } thumb.onclick = () => { if (this.isActive) this.focusApp(winData.element.id); else this.windowManager.makeActive(winData.element.id); }; this.sidebar.appendChild(thumb); } }
+    async updateStageThumbnails() { if (!this.sidebar) return; const generation = this._thumbGeneration = (this._thumbGeneration || 0) + 1; this.sidebar.innerHTML = ''; const openWindows = []; this.windowManager.windows.forEach(winData => { if (!winData.minimized && (this.isActive || winData.element.style.display !== 'none')) { openWindows.push(winData); } }); for (const winData of openWindows) { if (winData.element.id === this.focusedAppId && this.isActive) continue; const thumb = document.createElement('div'); thumb.className = 'stage-app-thumbnail'; thumb.dataset.winId = winData.element.id; const titleSpan = document.createElement('span'); titleSpan.className = 'thumbnail-title'; titleSpan.textContent = winData.title.substring(0, 15) + (winData.title.length > 15 ? '...' : ''); try { const screenshotSrc = await winData.getScreenshot(); const img = document.createElement('img'); img.src = screenshotSrc; img.alt = winData.title; thumb.appendChild(img); thumb.appendChild(titleSpan); } catch (e) { const placeholder = document.createElement('div'); placeholder.className = 'placeholder-icon'; placeholder.textContent = '⚙️'; thumb.appendChild(placeholder); thumb.appendChild(titleSpan); } thumb.onclick = () => { if (this.isActive) this.focusApp(winData.element.id); else this.windowManager.makeActive(winData.element.id); }; if (generation !== this._thumbGeneration) return; this.sidebar.appendChild(thumb); } }
     focusApp(winId) { this.focusedAppId = winId; this.windowManager.windows.forEach((winData, id) => { const winEl = winData.element; if (id === winId) { winEl.style.display = 'flex'; const mainAreaRect = this.mainArea.getBoundingClientRect(); const sidebarWidth = this.sidebar.offsetWidth + 20; const availableWidth = mainAreaRect.width - (this.isActive ? sidebarWidth : 0); let targetWidth = Math.min(parseFloat(this.originalWindowStates.get(id)?.width || winEl.offsetWidth), availableWidth * 0.75); let targetHeight = (targetWidth / parseFloat(this.originalWindowStates.get(id)?.width || winEl.offsetWidth)) * parseFloat(this.originalWindowStates.get(id)?.height || winEl.offsetHeight); if (targetHeight > mainAreaRect.height * 0.85) { targetHeight = mainAreaRect.height * 0.85; targetWidth = (targetHeight / parseFloat(this.originalWindowStates.get(id)?.height || winEl.offsetHeight)) * parseFloat(this.originalWindowStates.get(id)?.width || winEl.offsetWidth); } winEl.style.width = `${targetWidth}px`; winEl.style.height = `${targetHeight}px`; winEl.style.left = `${(this.isActive ? sidebarWidth : 0) + (availableWidth - targetWidth) / 2}px`; winEl.style.top = `${(mainAreaRect.height - targetHeight) / 2}px`; winEl.style.transform = 'scale(1)'; } else { winEl.style.display = 'none'; } }); this.updateStageThumbnails(); }
-    restoreWindows() { this.windowManager.windows.forEach((winData, winId) => { const originalState = this.originalWindowStates.get(winId); if (originalState) { winData.element.style.left = originalState.left; winData.element.style.top = originalState.top; winData.element.style.width = originalState.width; winData.element.style.height = originalState.height; winData.element.style.zIndex = originalState.zIndex; winData.element.style.transform = originalState.transform; } if (!winData.minimized) winData.element.style.display = 'flex'; }); this.focusedAppId = null; if (window.windowManager.activeWindowId) window.windowManager.makeActive(window.windowManager.activeWindowId); this.updateStageThumbnails(); }
+    restoreWindows() { this.windowManager.windows.forEach((winData, winId) => { const originalState = this.originalWindowStates.get(winId); if (originalState) { winData.element.style.left = originalState.left; winData.element.style.top = originalState.top; winData.element.style.width = originalState.width; winData.element.style.height = originalState.height; winData.element.style.zIndex = originalState.zIndex; winData.element.style.transform = originalState.transform; } winData.element.style.display = ''; }); this.focusedAppId = null; if (window.windowManager.activeWindowId) window.windowManager.makeActive(window.windowManager.activeWindowId); this.updateStageThumbnails(); }
 }
 
 // --- INICIALIZAÇÃO E EVENTOS GLOBAIS ---
@@ -592,6 +627,7 @@ export function initializeWebOS() {
         'open-ncr-tool': apps.openNCRTool,
         'open-pdca-tool': apps.openPDCATool,
         'open-5w2h-tool': apps.open5W2HTool,
+        'open-pareto-diagram': apps.openParetoDiagram,
         'open-sei-dashboard': apps.openSeiDashboard
     };
 
@@ -610,10 +646,11 @@ export function initializeWebOS() {
     document.addEventListener('keydown', (e) => { if (e.key === "Escape") { hideDesktopContextMenu(); if (window.windowManager.stageManager.isActive) window.windowManager.stageManager.toggle(); } });
 
     const savedWallpaper = localStorage.getItem(STORAGE_KEYS.WALLPAPER);
-    if (savedWallpaper) document.body.style.backgroundImage = `url(${savedWallpaper})`;
+    if (savedWallpaper) document.body.style.backgroundImage = `url("${savedWallpaper.replace(/"/g, '%22')}")`;
 
     window.themeManager.applyThemeVariables();
-    document.getElementById('darkModeToggle').onclick = () => window.themeManager.toggleDarkMode();
+    const darkModeToggleBtn = document.getElementById('darkModeToggle');
+    if (darkModeToggleBtn) darkModeToggleBtn.onclick = () => window.themeManager.toggleDarkMode();
 
     const wallpaperInput = document.getElementById('wallpaperInput');
     if (wallpaperInput) {
@@ -627,11 +664,17 @@ export function initializeWebOS() {
 
             const reader = new FileReader();
             reader.onload = ev => {
-                document.body.style.backgroundImage = `url(${ev.target.result})`;
-                localStorage.setItem(STORAGE_KEYS.WALLPAPER, ev.target.result);
-                showNotification("Papel de parede alterado!", 2500);
+                document.body.style.backgroundImage = `url("${ev.target.result}")`;
+                try {
+                    localStorage.setItem(STORAGE_KEYS.WALLPAPER, ev.target.result);
+                    showNotification("Papel de parede alterado!", 2500);
+                } catch (err) {
+                    console.warn("Não foi possível salvar o papel de parede:", err);
+                    showNotification("Papel de parede alterado, mas a imagem é grande demais para ser lembrada.", 3500);
+                }
             };
             reader.readAsDataURL(e.target.files[0]);
+            e.target.value = '';
         });
     }
 
@@ -641,7 +684,7 @@ export function initializeWebOS() {
     setupDesktopContextMenuListeners();
 
     if (window.mapNeuralManager) {
-        window.mapNeuralManager.loadState();
+        try { window.mapNeuralManager.loadState(); } catch (e) { console.warn("Falha ao carregar estado do MapNeural:", e); }
     }
 
     const dockEl = document.getElementById('appDock');
@@ -677,6 +720,10 @@ function chooseWallpaper() {
 }
 function showDesktop() { window.windowManager.windows.forEach((wData, winId) => { if (!wData.minimized) window.windowManager.minimizeWindow(winId); }); }
 function shutdown() {
+    if (!window.authManager || !window.authManager.user) {
+        showNotification("Você está no modo convidado; não há conta conectada.", 3000);
+        return;
+    }
     let hasUnsavedChanges = false;
     window.windowManager.windows.forEach(winData => { if (winData.currentAppInstance?.isDirty) hasUnsavedChanges = true; });
     let confirmMsg = 'Deseja realmente sair da sua conta?';
@@ -722,13 +769,22 @@ function showDesktopContextMenu(x, y) {
 }
 function hideDesktopContextMenu() { const dm = document.getElementById('desktopContextMenu'); if (dm) dm.style.display = 'none'; }
 let longPressTimer, touchStartX, touchStartY; const longPressDuration = 700;
-document.getElementById('desktop').addEventListener('touchstart', (e) => { if (e.touches.length > 1) return; touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; longPressTimer = setTimeout(() => { if (longPressTimer) { e.preventDefault(); showDesktopContextMenu(touchStartX, touchStartY); } }, longPressDuration); }, { passive: false });
 function clearLongPressTimer() { clearTimeout(longPressTimer); longPressTimer = null; }
-document.getElementById('desktop').addEventListener('touchend', clearLongPressTimer); document.getElementById('desktop').addEventListener('touchcancel', clearLongPressTimer);
-document.getElementById('desktop').addEventListener('touchmove', (e) => { if (longPressTimer && touchStartX && touchStartY && (Math.abs(e.touches[0].clientX - touchStartX) > 10 || Math.abs(e.touches[0].clientY - touchStartY) > 10)) clearLongPressTimer(); });
+const desktopTouchEl = document.getElementById('desktop');
+if (desktopTouchEl) {
+    // Long-press apenas no fundo da área de trabalho (não dentro de janelas).
+    desktopTouchEl.addEventListener('touchstart', (e) => { if (e.touches.length > 1 || e.target !== desktopTouchEl) return; touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; longPressTimer = setTimeout(() => { if (longPressTimer) { longPressTimer = null; if (window.themeManager) showDesktopContextMenu(touchStartX, touchStartY); } }, longPressDuration); }, { passive: true });
+    desktopTouchEl.addEventListener('touchend', clearLongPressTimer); desktopTouchEl.addEventListener('touchcancel', clearLongPressTimer);
+    desktopTouchEl.addEventListener('touchmove', (e) => { if (longPressTimer && (Math.abs(e.touches[0].clientX - touchStartX) > 10 || Math.abs(e.touches[0].clientY - touchStartY) > 10)) clearLongPressTimer(); });
+}
 
 
 /* Inicialização em modo convidado: o OS inicia independente de login */
-document.addEventListener('DOMContentLoaded', () => {
+function bootWebOS() {
     try { if (!window.webOSInitialized) initializeWebOS(); } catch (e) { console.error(e); }
-});
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootWebOS);
+} else {
+    bootWebOS();
+}

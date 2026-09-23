@@ -9,6 +9,7 @@ export * from './kanbanBoard.js';
 export * from './mindMap.js';
 export * from './ncrTool.js';
 export * from './okrTracker.js';
+export * from './paretoDiagram.js';
 export * from './pdcaTool.js';
 export * from './projectTasks.js';
 export * from './sipocMatrix.js';

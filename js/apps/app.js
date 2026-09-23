@@ -78,10 +78,17 @@ export function setupAppToolbarActions(appState) {
     const toolbar = winData.element.querySelector('.app-toolbar');
     if (!toolbar) return;
 
+    // Evita registrar o mesmo listener várias vezes (ex.: init() chamado de novo);
+    // o estado mais recente é sempre usado.
+    toolbar._pmosAppState = appState;
+    if (toolbar.dataset.toolbarWired) return;
+    toolbar.dataset.toolbarWired = '1';
+
     toolbar.addEventListener('click', async (e) => {
         const button = e.target.closest('button[data-action]');
         if (!button) return;
         const action = button.dataset.action;
+        appState = toolbar._pmosAppState || appState;
 
         // Ação de salvar: requer login na nuvem
         if (action === 'save') {
@@ -132,8 +139,10 @@ export async function handleSaveAction(appState) {
         showNotification("Acesso à nuvem não está pronto.", 3000);
         return;
     }
+    if (!appState || typeof appState.getData !== 'function') return;
+    const winData = window.windowManager.windows.get(appState.winId);
+    if (!winData) return;
     if (appState.fileId) {
-        const winData = window.windowManager.windows.get(appState.winId);
         showNotification(`Salvando "${winData.title.replace('*', '').trim()}"...`, 2000);
         try {
             const dataToSave = appState.getData();
@@ -148,6 +157,7 @@ export async function handleSaveAction(appState) {
             appState.markClean();
             showNotification(`"${fileMetadata.name}" salvo na nuvem.`, 2500);
         } catch (e) {
+            console.error("Erro ao salvar:", e);
             showNotification("Falha ao salvar. Verifique o console.", 4000);
         }
     } else {
@@ -168,8 +178,9 @@ export async function handleSaveAsAction(appState) {
     const defaultFilename = (appState.fileId && window.windowManager.windows.get(appState.winId)?.title) ?
         window.windowManager.windows.get(appState.winId).title.replace('*', '').trim() : appState.defaultFileName;
 
-    const newFilename = prompt("Salvar arquivo na nuvem como:", defaultFilename);
+    let newFilename = prompt("Salvar arquivo na nuvem como:", defaultFilename);
     if (!newFilename || newFilename.trim() === '') return;
+    newFilename = newFilename.trim();
 
     showNotification(`Salvando "${newFilename}"...`, 2000);
     try {
@@ -188,6 +199,7 @@ export async function handleSaveAsAction(appState) {
         showNotification(`Arquivo salvo como "${savedFile.name}" na nuvem.`, 3000);
 
     } catch (e) {
+        console.error("Erro ao salvar:", e);
         showNotification("Falha ao salvar. Verifique o console.", 4000);
     }
 }
@@ -326,7 +338,8 @@ export function openFileForApp() {
     // Reutiliza a janela do explorador se já estiver aberta
     let fsWin = Array.from(window.windowManager.windows.values()).find(w => w.appType === 'filesystem');
     if (fsWin) {
-        window.windowManager.makeActive(fsWin.element.id);
+        if (fsWin.minimized) window.windowManager.restoreWindow(fsWin.element.id);
+        else window.windowManager.makeActive(fsWin.element.id);
         return;
     }
     // Se não, abre uma nova
@@ -528,7 +541,42 @@ function ensureAISuggestionsContainer(appState) {
 /**
  * Limpa lixo de Markdown / blocos de código e garante HTML simples.
  */
+const AI_ALLOWED_TAGS = new Set(['P', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'B', 'I', 'H3', 'H4', 'BR']);
+
+/**
+ * Mantém apenas tags simples de formatação e remove todos os atributos,
+ * evitando injeção de scripts/handlers vindos da resposta da IA.
+ */
+function stripUnsafeHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const walk = (node) => {
+        Array.from(node.childNodes).forEach(child => {
+            if (child.nodeType === Node.ELEMENT_NODE) {
+                walk(child);
+                if (!AI_ALLOWED_TAGS.has(child.tagName)) {
+                    if (['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'TEMPLATE'].includes(child.tagName)) {
+                        child.remove();
+                    } else {
+                        child.replaceWith(...Array.from(child.childNodes));
+                    }
+                } else {
+                    Array.from(child.attributes).forEach(attr => child.removeAttribute(attr.name));
+                }
+            } else if (child.nodeType !== Node.TEXT_NODE) {
+                child.remove();
+            }
+        });
+    };
+    walk(template.content);
+    return template.innerHTML;
+}
+
 function sanitizeAISuggestionsHtml(text) {
+    return stripUnsafeHtml(formatAISuggestionsHtml(text));
+}
+
+function formatAISuggestionsHtml(text) {
     if (!text) return "";
     let cleaned = text.trim();
 

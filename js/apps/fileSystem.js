@@ -1,4 +1,4 @@
-import { generateId, showNotification } from '../main.js';
+import { generateId, showNotification, escapeHtml } from '../main.js';
 import { openSWOTAnalysis } from './swotAnalysis.js';
 import { openOKRTracker } from './okrTracker.js';
 import { openGanttChart } from './ganttChart.js';
@@ -11,6 +11,7 @@ import { openChecklistTool } from './checklistTool.js';
 import { openNCRTool } from './ncrTool.js';
 import { openPDCATool } from './pdcaTool.js';
 import { open5W2HTool } from './5w2hTool.js';
+import { openParetoDiagram } from './paretoDiagram.js';
 import { openKanbanBoard } from './kanbanBoard.js';
 import { openSIPOCMatrix } from './sipocMatrix.js';
 
@@ -29,6 +30,7 @@ function getAppOpenerForFile(file) {
         'ncr': openNCRTool,
         'pdca': openPDCATool,
         '5w2h': open5W2HTool,
+        'pareto-diagram': openParetoDiagram,
         'kanban-board': openKanbanBoard,
         'sipoc-matrix': openSIPOCMatrix
     };
@@ -56,16 +58,23 @@ export async function openFileSystem() {
     const winData = window.windowManager.windows.get(winId);
     if (!winData) return;
     const fileListContainer = winData.element.querySelector(`#fileListContainer_${uniqueSuffix}`);
+    let cachedFiles = [];
+    let renderToken = 0;
     
     async function renderFileList() {
+        const token = ++renderToken;
         if (!window.firestoreManager) {
-            fileListContainer.innerHTML = '<div style="text-align:center; padding:16px;">\n<p style="margin-bottom:10px;">Você está no modo convidado. Para acessar seus arquivos na nuvem, faça login.</p>\n<button id="connectCloudBtn" class="app-button primary">Entrar</button>\n</div>';
-            const btn=document.getElementById("connectCloudBtn"); if(btn){ btn.onclick=()=> window.authManager && window.authManager.openLoginModal && window.authManager.openLoginModal(); }
+            cachedFiles = [];
+            fileListContainer.innerHTML = '<div style="text-align:center; padding:16px;">\n<p style="margin-bottom:10px;">Você está no modo convidado. Para acessar seus arquivos na nuvem, faça login.</p>\n<button data-role="connect-cloud" class="app-button primary">Entrar</button>\n</div>';
+            const btn = fileListContainer.querySelector('[data-role="connect-cloud"]'); if(btn){ btn.onclick=()=> window.authManager && window.authManager.openLoginModal && window.authManager.openLoginModal(); }
             return;
         }
         fileListContainer.innerHTML = '<p>Carregando arquivos...</p>';
         try {
             const files = await window.firestoreManager.listFiles();
+            // A janela pode ter sido fechada ou outra renderização pode ter começado enquanto carregava
+            if (token !== renderToken || !window.windowManager.windows.has(winId)) return;
+            cachedFiles = files;
             fileListContainer.innerHTML = '';
             if (files.length === 0) {
                 fileListContainer.innerHTML = '<p style="text-align:center; padding: 20px; color: var(--secondary-text-color);">Nenhum arquivo encontrado na nuvem.</p>';
@@ -86,26 +95,30 @@ export async function openFileSystem() {
                     'project-tasks': '<img src="assets/icons/pmos-icons-2.0/png/project-tasks.png" alt="Tarefas" class="fs-app-icon">',
                     'ishikawa-diagram': '<img src="assets/icons/pmos-icons-2.0/png/ishikawa-diagram.png" alt="Ishikawa" class="fs-app-icon">',
                     'bpmn-modeler': '<img src="assets/icons/pmos-icons-2.0/png/bpmn-modeler.png" alt="BPMN" class="fs-app-icon">',
-                    'mind-map': '<img src="assets/icons/pmos-icons-2.0/png/mind-map.png" alt="Mapa Mental" class="fs-app-icon">',
+                    'mindmap': '<img src="assets/icons/pmos-icons-2.0/png/mind-map.png" alt="Mapa Mental" class="fs-app-icon">',
                     'contract-manager': '<img src="assets/icons/pmos-icons-2.0/png/contract-manager.png" alt="Contratos" class="fs-app-icon">',
                     'checklist': '<img src="assets/icons/pmos-icons-2.0/png/checklist-tool.png" alt="Checklist" class="fs-app-icon">',
                     'ncr': '<img src="assets/icons/pmos-icons-2.0/png/ncr-tool.png" alt="RNC" class="fs-app-icon">',
                     'pdca': '<img src="assets/icons/pmos-icons-2.0/png/pdca-tool.png" alt="PDCA" class="fs-app-icon">',
                     '5w2h': '<img src="assets/icons/pmos-icons-2.0/png/5w2h.png" alt="5W2H" class="fs-app-icon">',
+                    'pareto-diagram': '<img src="assets/icons/pmos-icons-2.0/png/pareto-diagram.png" alt="Pareto" class="fs-app-icon">',
                     'kanban-board': '<img src="assets/icons/pmos-icons-2.0/png/kanban-board.png" alt="Kanban" class="fs-app-icon">',
                     'sipoc-matrix': '<img src="assets/icons/pmos-icons-2.0/png/sipoc-matrix.png" alt="SIPOC" class="fs-app-icon">'
                 };
                 const appIcon = appIcons[appType] || '📄';
 
+                const safeId = escapeHtml(file.id);
+                const safeName = escapeHtml(file.name || 'Sem nome');
+                const modified = file.modifiedTime ? new Date(file.modifiedTime).toLocaleString('pt-BR') : '-';
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td><span class="item-icon">${appIcon}</span> ${file.name}</td>
-                    <td>${appType}</td>
-                    <td>${new Date(file.modifiedTime).toLocaleString('pt-BR')}</td>
+                    <td><span class="item-icon">${appIcon}</span> ${safeName}</td>
+                    <td>${escapeHtml(appType)}</td>
+                    <td>${escapeHtml(modified)}</td>
                     <td>
-                        <button class="app-button action-button" data-action="open" data-file-id="${file.id}" data-file-name="${file.name}" title="Abrir"><i class="fas fa-folder-open"></i></button>
-                        <button class="app-button secondary action-button" data-action="rename" data-file-id="${file.id}" data-file-name="${file.name}" title="Renomear"><i class="fas fa-edit"></i></button>
-                        <button class="app-button danger action-button" data-action="delete" data-file-id="${file.id}" data-file-name="${file.name}" title="Excluir"><i class="fas fa-trash"></i></button>
+                        <button class="app-button action-button" data-action="open" data-file-id="${safeId}" data-file-name="${safeName}" title="Abrir"><i class="fas fa-folder-open"></i></button>
+                        <button class="app-button secondary action-button" data-action="rename" data-file-id="${safeId}" data-file-name="${safeName}" title="Renomear"><i class="fas fa-edit"></i></button>
+                        <button class="app-button danger action-button" data-action="delete" data-file-id="${safeId}" data-file-name="${safeName}" title="Excluir"><i class="fas fa-trash"></i></button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -114,7 +127,8 @@ export async function openFileSystem() {
             fileListContainer.appendChild(table);
 
         } catch (e) {
-            fileListContainer.innerHTML = `<p style="color:red;">Erro ao carregar arquivos: ${e.message}</p>`;
+            if (token !== renderToken) return;
+            fileListContainer.innerHTML = `<p style="color:red;">Erro ao carregar arquivos: ${escapeHtml(e.message)}</p>`;
         }
     }
 
@@ -125,23 +139,43 @@ export async function openFileSystem() {
         const fileId = button.dataset.fileId;
         const fileName = button.dataset.fileName;
         const action = button.dataset.action;
+        if (!fileId) return;
+        if (!window.firestoreManager) {
+            showNotification("Faça login para acessar arquivos na nuvem.", 2500);
+            renderFileList();
+            return;
+        }
 
         if (action === 'open') {
             showNotification(`Abrindo "${fileName}"...`, 2000);
             try {
-                const fileContentString = await window.firestoreManager.readFile(fileId);
-                const filesList = await window.firestoreManager.listFiles();
-                const fileMeta = filesList.find(f => f.id === fileId);
+                let fileMeta = cachedFiles.find(f => f.id === fileId);
+                if (!fileMeta) {
+                    const filesList = await window.firestoreManager.listFiles();
+                    fileMeta = filesList.find(f => f.id === fileId);
+                }
+                if (!fileMeta) {
+                    showNotification(`Arquivo "${fileName}" não encontrado.`, 3000);
+                    renderFileList();
+                    return;
+                }
 
                 const appOpener = getAppOpenerForFile(fileMeta);
                 if (!appOpener) {
                      showNotification(`Não há aplicativo para abrir "${fileMeta.name}".`, 3000);
                      return;
                 }
-                
-                const newWinId = appOpener();
+
+                const fileContentString = await window.firestoreManager.readFile(fileId);
+                const newWinId = await appOpener();
                 const newWinData = window.windowManager.windows.get(newWinId);
-                newWinData.currentAppInstance.loadData(fileContentString, {id: fileId, name: fileName, ...fileMeta});
+                const instance = newWinData && newWinData.currentAppInstance;
+                if (!instance || typeof instance.loadData !== 'function') {
+                    showNotification(`Não foi possível carregar "${fileMeta.name}" no aplicativo.`, 3000);
+                    return;
+                }
+                const { content, ...metaWithoutContent } = fileMeta;
+                await instance.loadData(fileContentString, { ...metaWithoutContent, id: fileId, name: fileMeta.name || fileName });
 
             } catch(err) {
                 console.error("Error opening file: ", err);
@@ -151,19 +185,33 @@ export async function openFileSystem() {
         } else if (action === 'rename') {
             const newName = prompt(`Novo nome para "${fileName}":`, fileName);
             if(newName && newName.trim() !== '') {
-                await window.firestoreManager.renameFile(fileId, newName);
-                showNotification("Arquivo renomeado.", 2000);
+                const ok = await window.firestoreManager.renameFile(fileId, newName.trim());
+                if (ok !== false) showNotification("Arquivo renomeado.", 2000);
                 renderFileList();
             }
         } else if (action === 'delete') {
             if (confirm(`Tem certeza que deseja excluir "${fileName}" da nuvem?`)) {
-                await window.firestoreManager.deleteFile(fileId);
-                showNotification("Arquivo excluído.", 2000);
+                const ok = await window.firestoreManager.deleteFile(fileId);
+                if (ok !== false) showNotification("Arquivo excluído.", 2000);
                 renderFileList();
             }
         }
     });
 
     winData.element.querySelector(`#refreshFsBtn_${uniqueSuffix}`).onclick = renderFileList;
+
+    // Atualiza a lista quando o usuário entra/sai; o listener é removido ao fechar a janela.
+    const onAuthChange = () => renderFileList();
+    document.addEventListener('pmos:authchange', onAuthChange);
+    document.addEventListener('pmos:fileschanged', onAuthChange);
+    winData.currentAppInstance = {
+        winId,
+        cleanup: () => {
+            document.removeEventListener('pmos:authchange', onAuthChange);
+            document.removeEventListener('pmos:fileschanged', onAuthChange);
+        }
+    };
+
     renderFileList();
+    return winId;
 }
