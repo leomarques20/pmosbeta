@@ -1,4 +1,4 @@
-import { showNotification } from '../main.js';
+import { showNotification } from '../../main.js';
 
 /**
  * Opens a modal to generate a memo (memorando) using AI
